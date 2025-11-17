@@ -1,0 +1,8 @@
+{
+  "input_image": "image6.jpg",
+  "output_directory": "temp",
+  "plate_solve_parameters": ["-v", "--downsample", "1", "--overwrite", "-r", "-J", "-l", "6000", "--objs", "50"],
+  "camera_data": [[1080, 1920], [3.72, 5.00], 4.266],
+  "photo_data": [[1080, 1920], "2025-11-15T03:25:09.000", [50.149717, 30.752695]],
+  "orientation_data": [[0.4006, 4.4605, -8.7243], [0, 0], [1, 1], [1, 1]]
+}

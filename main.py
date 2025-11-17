@@ -2,8 +2,12 @@ import json
 import sys
 from pathlib import Path
 
+
 import numpy as np
 from PIL import Image, ImageDraw
+from astropy.time import Time
+from astropy.coordinates import SkyCoord, FK5, CIRS, GCRS
+import astropy.units as u
 
 import plate_solve
 import calculate_zenith_photo_coordinates
@@ -20,7 +24,7 @@ def load_config(path: Path):
 if __name__ == "__main__":
     correction_coefficients = True
 
-    arguments = load_config(Path("arguments5.json"))
+    arguments = load_config(Path("arguments6.json"))
     wcs_fits = "./" + arguments["input_image"] + ".d/wcs.fits"
     ''''''
     plate_solve.plate_solve(
@@ -38,6 +42,13 @@ if __name__ == "__main__":
         wcs_fits,
         zenith_photo_coordinates)
     print("(Calculated) ICRS Coordinates: ", zenith_icrs_coordinates_gravity)
+
+    source = SkyCoord(ra=zenith_icrs_coordinates_gravity[0] * u.deg, dec=zenith_icrs_coordinates_gravity[1] * u.deg, frame=FK5(equinox=Time('J2000')))
+    result = source.transform_to(FK5(equinox=Time('J2025')))
+    zenith_icrs_coordinates_gravity = (result.ra.deg, result.dec.deg)
+
+    print("(Calculated) ICRS Coordinates J2000: ", result.ra.deg, result.dec.deg)
+
 
     location = approximate_location.approximate_location(
         zenith_icrs_coordinates_gravity[0],
