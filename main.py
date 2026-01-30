@@ -1,72 +1,29 @@
 import json
 import sys
 from pathlib import Path
-
-
 import numpy as np
 from PIL import Image, ImageDraw
 from astropy.time import Time
 from astropy.coordinates import SkyCoord, FK5, CIRS, GCRS
 import astropy.units as u
-
 import plate_solve
-import calculate_zenith_photo_coordinates
-import calculate_zenith_icrs_coordinates
-import approximate_location
-import approximate_time
+import tools
 
-global correction_coefficients
+global is_calibrating
+global is_imu_correction_get
+global is_imu_correction_global_set
+global is_imu_correction_local_set
 
 def load_config(path: Path):
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
 
-if __name__ == "__main__":
-    correction_coefficients = True
+def save_config(path: Path, data):
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+    return path
 
-    arguments = load_config(Path("arguments6.json"))
-    wcs_fits = "./" + arguments["input_image"] + ".d/wcs.fits"
-    ''''''
-    plate_solve.plate_solve(
-        arguments["input_image"],
-        arguments["output_directory"],
-        arguments["plate_solve_parameters"])
-    ''''''
-    zenith_photo_coordinates, zenith_photo_angles = calculate_zenith_photo_coordinates.calculate_zenith_photo_coordinates_gravity(
-        arguments["camera_data"],
-        arguments["photo_data"],
-        arguments["orientation_data"],
-        correction_coefficients)
-    print("(Calculated) Coordinates: ", zenith_photo_coordinates, "\n(Calculated) Angles: ", zenith_photo_angles)
-    zenith_icrs_coordinates_gravity = calculate_zenith_icrs_coordinates.calculate_zenith_icrs_coordinates(
-        wcs_fits,
-        zenith_photo_coordinates)
-    print("(Calculated) ICRS Coordinates: ", zenith_icrs_coordinates_gravity)
-
-    source = SkyCoord(ra=zenith_icrs_coordinates_gravity[0] * u.deg, dec=zenith_icrs_coordinates_gravity[1] * u.deg, frame=FK5(equinox=Time('J2000')))
-    result = source.transform_to(FK5(equinox=Time('J2025')))
-    zenith_icrs_coordinates_gravity = (result.ra.deg, result.dec.deg)
-
-    print("(Calculated) ICRS Coordinates J2000: ", result.ra.deg, result.dec.deg)
-
-
-    location = approximate_location.approximate_location(
-        zenith_icrs_coordinates_gravity[0],
-        zenith_icrs_coordinates_gravity[1],
-        arguments["photo_data"][1])
-    print("(Calculated) Location: ", location)
-
-    reversed_location = approximate_location.reverse_approximate_location(
-        arguments["photo_data"][1],
-        arguments["photo_data"][2][0],
-        arguments["photo_data"][2][1])
-    print("(Actual) ICRS Coordinated: ", reversed_location)
-    coefficient_location = calculate_zenith_icrs_coordinates.calculate_pixel_coordinates_from_icrs(
-        wcs_fits,
-        reversed_location)
-    print("(Actual) Coordinates: ", coefficient_location)
-
-    print(coefficient_location / zenith_photo_coordinates)
+def drawing(arguments, zenith_photo_coordinates, coefficient_location):
 
     # --------------------------
     # Drawing overlay on the image
@@ -120,3 +77,141 @@ if __name__ == "__main__":
         print(f"Charted image saved to: {out_path}")
     except Exception as e:
         print(f"Could not create charted image: {e}", file=sys.stderr)
+    
+if __name__ == "__main__":
+    input_arg = "metadata/meta0.json"
+    is_calibrating = True
+    is_imu_correction_get = True
+    is_imu_correction_global_set = True
+    is_imu_correction_local_set = True
+
+    # Load arguments from JSON file
+    arguments_m = load_config(Path(input_arg))
+    arguments_c = load_config(Path("config.json"))
+
+    ii = arguments_m.get("input_image", "")
+    input_image = "./" + ii
+    od = arguments_m.get("output_directory", "")
+    output_directory = "./" + od
+    ps = arguments_m.get("plate_solve_parameters", [])
+    plate_solve_parameters = ps
+    cd = arguments_m.get("camera_data", [])
+    camera_data = [
+        [float(cd[0][0]), float(cd[0][1])],
+        [float(cd[1][0]), float(cd[1][1])],
+        float(cd[2])
+    ]
+    pd = arguments_m.get("photo_data", [])
+    photo_data = [
+        [float(pd[0][0]), float(pd[0][1])],
+        pd[1],
+        [float(pd[2][0]), float(pd[2][1])]
+    ]
+    od = arguments_m.get("orientation_data", [])
+    orientation_data = [
+        np.asarray(od[0], dtype=np.float64),
+        np.asarray(od[1], dtype=np.float64),
+    ]
+
+    cm = arguments_c.get("correction_matrix", [])
+    correction_matrix = np.asarray(cm, dtype=np.float64) if len(cm) > 0 else np.array([])
+
+    wcs_fits = "./" + arguments_m["input_image"] + ".d/wcs.fits"
+
+
+    # Plate solving
+    plate_solve.plate_solve(
+        input_image,
+        output_directory,
+        plate_solve_parameters)
+    
+    if is_imu_correction_get and correction_matrix.size != 0:
+        # Apply IMU correction to orientation data
+        orientation_data[0] = correction_matrix @ orientation_data[0]
+    # Calculate zenith photo coordinates
+    obs_zenith_xy = tools.find_xy_via_orientation(
+        camera_data[0],
+        camera_data[1],
+        camera_data[2],
+        photo_data[0],
+        orientation_data[0] / np.linalg.norm(orientation_data[0]))
+    
+    # Calculate zenith ICRS coordinates
+    obs_zenith_icrs = tools.find_icrs_via_xy(
+        wcs_fits,
+        obs_zenith_xy)
+    
+    # Transform from observation epoch to J2000 using proper jyear Time
+    obs_epoch = Time(Time(photo_data[1], scale='utc').to_value('decimalyear'), format='jyear')
+    source = SkyCoord(ra=obs_zenith_icrs[0] * u.deg, dec=obs_zenith_icrs[1] * u.deg, frame=FK5(equinox=obs_epoch))
+    result = source.transform_to(FK5(equinox=Time(2000.0, format='jyear')))
+    obs_zenith_icrs_j2000 = [float(result.ra.deg), float(result.dec.deg)]
+
+    # Approximate location
+    obs_location = tools.find_location_via_icrs(
+        obs_zenith_icrs_j2000[0],
+        obs_zenith_icrs_j2000[1],
+        photo_data[1])
+    
+    if (is_calibrating is True):
+        # Reverse approximate location to get actual ICRS coordinates
+        apr_zenith_icrs = tools.find_icrs_via_location(
+            photo_data[1],
+            photo_data[2][0],
+            photo_data[2][1])
+    
+        # Calculate pixel coordinates from ICRS coordinates
+        apr_zenith_xy = tools.find_xy_via_icrs(
+            wcs_fits,
+            apr_zenith_icrs)
+    
+    if (is_calibrating is True and is_imu_correction_local_set is True and is_imu_correction_get is False):
+         apr_zenith_vector = tools.pixel_to_ray(apr_zenith_xy[0], apr_zenith_xy[1], camera_data)
+         obs_zenith_vector = tools.pixel_to_ray(obs_zenith_xy[0], obs_zenith_xy[1], camera_data)
+         cor_matrix = tools.rotation_from_vectors(obs_zenith_vector, apr_zenith_vector)
+         print("Correction matrix (from approximate to observed): ", cor_matrix)
+         od[1] = cor_matrix.tolist()
+         save_config(Path(input_arg), arguments_m)
+
+    if (is_imu_correction_global_set is True and is_calibrating is True):
+        # Gather local correction matrices from all metadata/meta*.json files
+        metadata_dir = Path("metadata")
+        local_corrections = []
+        for meta_file in metadata_dir.glob("meta*.json"):
+            try:
+                meta = load_config(meta_file)
+                od = meta.get("orientation_data", [])
+                if len(od) > 1 and isinstance(od[1], list):
+                    mat = np.asarray(od[1], dtype=np.float64)
+                    if mat.shape == (3, 3):
+                        local_corrections.append(mat)
+            except Exception:
+                # ignore unreadable/invalid metadata files
+                continue
+
+        # If we found corrections, combine and persist as global correction
+        if len(local_corrections) > 0:
+            combined = tools.combine_rotation_corrections(local_corrections)
+            arguments_c["correction_matrix"] = combined.tolist()
+            save_config(Path("config.json"), arguments_c)
+            print(f"Saved combined global correction from {len(local_corrections)} metadata files.")
+        else:
+            print("No local orientation_data[1] corrections found in metadata.")
+    
+    print("(Calculated) Photo Coordinates:", obs_zenith_xy)
+    print("(Calculated) ICRS Coordinates J" + str(round(float(str(obs_epoch)), 2)) + ":", obs_zenith_icrs)
+    print("(Calculated) ICRS Coordinates J2000:", obs_zenith_icrs_j2000)
+    print("(Calculated) Location:", obs_location)
+
+    if (is_calibrating is True):
+        print("(Approximate) Photo Coordinates:", apr_zenith_xy)
+        print("(Approximate) ICRS Coordinated:", apr_zenith_icrs)
+        print("(Actual) Location:", photo_data[2])
+
+        # print("Photo coordinates precision (pixels): ", round(((zenith_photo_coordinates[0] - actual_zenith_photo_coordinates[0])**2 + (zenith_photo_coordinates[1] - actual_zenith_photo_coordinates[1])**2) ** 0.5, 2))
+        # print("Estimated ICRS precision (degrees): ", round(((zenith_icrs_coordinates_2000[0] - actual_zenith_icrs_coordinates[0])**2 + (zenith_icrs_coordinates_2000[1] - actual_zenith_icrs_coordinates[1])**2) ** 0.5, 6))
+        # print("Estimated ICRS precision (km): ", round(((zenith_icrs_coordinates_2000[0] - actual_zenith_icrs_coordinates[0])**2 + (zenith_icrs_coordinates_2000[1] - actual_zenith_icrs_coordinates[1])**2) ** 0.5 * 111, 6))
+        print("Location precision (km):", round(((photo_data[2][0] - obs_location[0])**2 + (photo_data[2][1] - obs_location[1])**2) ** 0.5 * 111, 2))
+
+    if (is_calibrating is True):
+        drawing(arguments_m, obs_zenith_xy, apr_zenith_xy)
