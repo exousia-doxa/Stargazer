@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="capture_details_title">Details</string>
+    <string name="utc_time_label">UTC:</string>
+    <string name="gravity_x_label">X:</string>
+    <string name="gravity_y_label">Y:</string>
+    <string name="gravity_z_label">Z:</string>
 
     <string name="app_name">Open Camera</string> <!-- shouldn't be translated, unless deemed appropriate e.g. alternative alphabets -->
     <string name="action_settings">Settings</string>
@@ -956,7 +961,6 @@
     <string name="switch_multi_camera">Switch between multiple cameras</string>
     <string name="preference_multi_cam_button">Multiple cameras icon</string>
     <string name="preference_multi_cam_button_summary">If enabled, use separate buttons to switch between front/back cameras, and to switch between multiple front/back facing cameras. If disabled, the Switch Camera icon will cycle through all cameras.</string>
-
     <string name="preference_show_camera_id">Show camera ID</string>
     <string name="preference_show_camera_id_summary">Display the current camera ID number on screen</string>
 

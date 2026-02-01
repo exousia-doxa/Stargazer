@@ -111,6 +111,19 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.app.AlertDialog;
+import android.view.LayoutInflater;
+import android.widget.TextView;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
+import java.util.Arrays;
+
 /** The main Activity for Open Camera.
  */
 public class MainActivity extends AppCompatActivity implements PreferenceFragment.OnPreferenceStartFragmentCallback {
@@ -122,6 +135,10 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
 
     private SensorManager mSensorManager;
     private Sensor mSensorAccelerometer;
+
+    private Sensor mSensorGravity;
+    private final float[] gravityValues = new float[3];
+    private final Object gravityLock = new Object();
 
     // components: always non-null (after onCreate())
     private BluetoothRemoteControl bluetoothRemoteControl;
@@ -259,6 +276,58 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     List<Integer> exposure_seekbar_values; // mapping from exposure_seekbar progress value to preview exposure compensation
     private int exposure_seekbar_values_zero; // index in exposure_seekbar_values that maps to zero preview exposure compensation
 
+    public float[] getGravitySensorData() {
+        synchronized (gravityLock) {
+            // Return a copy to prevent external modification while the UI thread is processing
+            return Arrays.copyOf(gravityValues, gravityValues.length);
+        }
+    }
+
+    public void showCaptureDetailsPopup(String utcTime, float[] gravityData) {
+        if( MyDebug.LOG )
+            Log.d(TAG, "showCaptureDetailsPopup");
+
+        // Ensure we are on the UI thread to display the dialog
+        runOnUiThread(() -> {
+            AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
+            alertDialog.setTitle(R.string.capture_details_title);
+
+            LayoutInflater inflater = getLayoutInflater();
+            View dialogView = inflater.inflate(R.layout.popup_capture_details, null);
+
+            TextView utcTimeTextView = dialogView.findViewById(R.id.utc_time_textview);
+            TextView gravityXTextView = dialogView.findViewById(R.id.gravity_x_textview);
+            TextView gravityYTextView = dialogView.findViewById(R.id.gravity_y_textview);
+            TextView gravityZTextView = dialogView.findViewById(R.id.gravity_z_textview);
+
+            utcTimeTextView.setText(getString(R.string.utc_time_label) + " " + utcTime);
+            gravityXTextView.setText(getString(R.string.gravity_x_label) + " " + String.format(Locale.ROOT, "%.7f", gravityData[0]));
+            gravityYTextView.setText(getString(R.string.gravity_y_label) + " " + String.format(Locale.ROOT, "%.7f", gravityData[1]));
+            gravityZTextView.setText(getString(R.string.gravity_z_label) + " " + String.format(Locale.ROOT, "%.7f", gravityData[2]));
+
+            alertDialog.setView(dialogView);
+            alertDialog.setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                // Опціонально: можеш додати якусь логіку при натисканні "OK"
+            });
+            alertDialog.show();
+        });
+    }
+
+    private final SensorEventListener gravityListener = new SensorEventListener() {
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
+            // Можна щось робити тут, якщо потрібна інформація про зміну точності
+        }
+
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            if (event.sensor.getType() == Sensor.TYPE_GRAVITY) {
+                synchronized (gravityLock) {
+                    System.arraycopy(event.values, 0, gravityValues, 0, gravityValues.length);
+                }
+            }
+        }
+    };
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         long debug_time = 0;
@@ -383,6 +452,18 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             if( MyDebug.LOG )
                 Log.d(TAG, "no support for accelerometer");
         }
+
+        // Gravity sensor (for precise gravity values)
+        if( mSensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY) != null ) {
+            if( MyDebug.LOG )
+                Log.d(TAG, "found gravity sensor");
+            mSensorGravity = mSensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY);
+        }
+        else {
+            if( MyDebug.LOG )
+                Log.d(TAG, "no support for gravity sensor");
+        }
+
         if( MyDebug.LOG )
             Log.d(TAG, "onCreate: time after creating accelerometer sensor: " + (System.currentTimeMillis() - debug_time));
 
@@ -410,11 +491,11 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             WindowManager.LayoutParams layout = getWindow().getAttributes();
             // If locked to landscape, ROTATION_ANIMATION_SEAMLESS/JUMPCUT has the problem that when going to
             // Settings in portrait, we briefly see the UI change - this is because we set the flag
-            // to no longer lock to landscape, and that change happens too quickly.
-            // This isn't a problem when lock_to_landscape==false, and we want
+            // to no longer lock to landscape, and that change happens too quickly.\n
+            // This isn\'t a problem when lock_to_landscape==false, and we want
             // ROTATION_ANIMATION_SEAMLESS so that there is no/minimal pause from the preview when
             // rotating the device. However if using old camera API, we get an ugly transition with
-            // ROTATION_ANIMATION_SEAMLESS (probably related to not using TextureView?)
+            // ROTATION_ANIMATION_SEAMLESS (probably related to not using TextureView?)\n
             if( lock_to_landscape || !preview.usingCamera2API() )
                 layout.rotationAnimation = WindowManager.LayoutParams.ROTATION_ANIMATION_CROSSFADE;
             else if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.O )
@@ -425,14 +506,14 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         }
 
         // Setup multi-camera buttons (must be done after creating preview so we know which Camera API is being used,
-        // and before initialising on-screen visibility).
-        // We only allow the separate icon for switching cameras if:
-        // - there are at least 2 types of "facing" camera, and
-        // - there are at least 2 cameras with the same "facing".
-        // If there are multiple cameras but all with different "facing", then the switch camera
-        // icon is used to iterate over all cameras.
-        // If there are more than two cameras, but all cameras have the same "facing, we still stick
-        // with using the switch camera icon to iterate over all cameras.
+        // and before initialising on-screen visibility).\n
+        // We only allow the separate icon for switching cameras if:\n
+        // - there are at least 2 types of "facing" camera, and\n
+        // - there are at least 2 cameras with the same "facing".\n
+        // If there are multiple cameras but all with different "facing", then the switch camera\n
+        // icon is used to iterate over all cameras.\n
+        // If there are more than two cameras, but all cameras have the same "facing, we still stick\n
+        // with using the switch camera icon to iterate over all cameras.\n
         int n_cameras = preview.getCameraControllerManager().getNumberOfCameras();
         if( n_cameras > 2 ) {
             this.back_camera_ids = new ArrayList<>();
@@ -490,12 +571,12 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         View cancelPanoramaButton = findViewById(R.id.cancel_panorama);
         cancelPanoramaButton.setVisibility(View.GONE);
 
-        // We initialise optional controls to invisible/gone, so they don't show while the camera is opening - the actual visibility is
-        // set in cameraSetup().
-        // Note that ideally we'd set this in the xml, but doing so for R.id.zoom causes a crash on Galaxy Nexus startup beneath
-        // setContentView()!
-        // To be safe, we also do so for take_photo and zoom_seekbar (we already know we've had no reported crashes for focus_seekbar,
-        // however).
+        // We initialise optional controls to invisible/gone, so they don\'t show while the camera is opening - the actual visibility is
+        // set in cameraSetup().\n
+        // Note that ideally we\'d set this in the xml, but doing so for R.id.zoom causes a crash on Galaxy Nexus startup beneath
+        // setContentView()!\n
+        // To be safe, we also do so for take_photo and zoom_seekbar (we already know we\'ve had no reported crashes for focus_seekbar,
+        // however).\n
         View takePhotoButton = findViewById(R.id.take_photo);
         takePhotoButton.setVisibility(View.INVISIBLE);
         View zoomSeekbar = findViewById(R.id.zoom_seekbar);
@@ -506,7 +587,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
 
         if( MainActivity.lock_to_landscape ) {
             // listen for orientation event change (only required if lock_to_landscape==true
-            // (MainUI.onOrientationChanged() does nothing if lock_to_landscape==false)
+            // (MainUI.onOrientationChanged() does nothing if lock_to_landscape==false)\n
             orientationEventListener = new OrientationEventListener(this) {
                 @Override
                 public void onOrientationChanged(int orientation) {
@@ -532,13 +613,13 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                         Log.d(TAG, "    layoutUI display width: " + mainUI.layoutUI_display_w);
                         Log.d(TAG, "    layoutUI display height: " + mainUI.layoutUI_display_h);
                     }
-                    // We need to call layoutUI when the window is resized without an orientation change -
-                    // this can happen in split-screen or multi-window mode, where onConfigurationChanged
-                    // is not guaranteed to be called.
-                    // We check against the size of when layoutUI was last called, to avoid repeated calls
-                    // when the resize is due to the device rotating and onConfigurationChanged is called -
-                    // in fact we'd have a problem of repeatedly calling layoutUI, since doing layoutUI
-                    // causes onLayoutChange() to be called again.
+                    // We need to call layoutUI when the window is resized without an orientation change -\n
+                    // this can happen in split-screen or multi-window mode, where onConfigurationChanged\n
+                    // is not guaranteed to be called.\n
+                    // We check against the size of when layoutUI was last called, to avoid repeated calls\n
+                    // when the resize is due to the device rotating and onConfigurationChanged is called -\n
+                    // in fact we\'d have a problem of repeatedly calling layoutUI, since doing layoutUI\n
+                    // causes onLayoutChange() to be called again.\n
                     if( display_size.x != mainUI.layoutUI_display_w || display_size.y != mainUI.layoutUI_display_h ) {
                         if( MyDebug.LOG )
                             Log.d(TAG, "call layoutUI due to resize");
@@ -559,12 +640,12 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                 return longClickedTakePhoto();
             }
         });
-        // set up on touch listener so we can detect if we've released from a long click
+        // set up on touch listener so we can detect if we\'ve released from a long click
         takePhotoButton.setOnTouchListener(new View.OnTouchListener() {
-            // the suppressed warning ClickableViewAccessibility suggests calling view.performClick for ACTION_UP, but this
-            // results in an additional call to clickedTakePhoto() - that is, if there is no long press, we get two calls to
-            // clickedTakePhoto instead one one; and if there is a long press, we get one call to clickedTakePhoto where
-            // there should be none.
+            // the suppressed warning ClickableViewAccessibility suggests calling view.performClick for ACTION_UP, but this\n
+            // results in an additional call to clickedTakePhoto() - that is, if there is no long press, we get two calls to\n
+            // clickedTakePhoto instead one one; and if there is a long press, we get one call to clickedTakePhoto where\n
+            // there should be none.\n
             @SuppressLint("ClickableViewAccessibility")
             @Override
             public boolean onTouch(View view, MotionEvent motionEvent) {
@@ -628,7 +709,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         }
 
         {
-            // handle What's New dialog
+            // handle What\'s New dialog
             int version_code = -1;
             try {
                 PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
@@ -646,13 +727,13 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                 //final boolean whats_new_enabled = false;
                 final boolean whats_new_enabled = true;
                 if( whats_new_enabled ) {
-                    // whats_new_version is the version code that the What's New text is written for. Normally it will equal the
-                    // current release (version_code), but it some cases we may want to leave it unchanged.
-                    // E.g., we have a "What's New" for 1.44 (64), but then push out a quick fix for 1.44.1 (65). We don't want to
+                    // whats_new_version is the version code that the What\'s New text is written for. Normally it will equal the
+                    // current release (version_code), but it some cases we may want to leave it unchanged.\n
+                    // E.g., we have a "What\'s New" for 1.44 (64), but then push out a quick fix for 1.44.1 (65). We don\'t want to
                     // show the dialog again to people who already received 1.44 (64), but we still want to show the dialog to people
-                    // upgrading from earlier versions.
+                    // upgrading from earlier versions.\n
                     int whats_new_version = 93; // 1.55
-                    whats_new_version = Math.min(whats_new_version, version_code); // whats_new_version should always be <= version_code, but just in case!
+                    whats_new_version = Math.min(whats_new_version, version_code); // whats_new_version should always be <= version_code, but just in case!\n
                     if( MyDebug.LOG ) {
                         Log.d(TAG, "whats_new_version: " + whats_new_version);
                     }
@@ -661,7 +742,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                     boolean allow_show_whats_new = sharedPreferences.getBoolean(PreferenceKeys.ShowWhatsNewPreferenceKey, true);
                     if( MyDebug.LOG )
                         Log.d(TAG, "allow_show_whats_new: " + allow_show_whats_new);
-                    // don't show What's New if this is the first time the user has run
+                    // don\'t show What\'s New if this is the first time the user has run
                     if( has_done_first_time && allow_show_whats_new && ( force_whats_new || whats_new_version > latest_version ) ) {
                         AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
                         alertDialog.setTitle(R.string.whats_new);
@@ -670,9 +751,9 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                         alertDialog.show();
                     }
                 }
-                // We set the latest_version whether or not the dialog is shown - if we showed the first time dialog, we don't
-                // want to then show the What's New dialog next time we run! Similarly if the user had disabled showing the dialog,
-                // but then enables it, we still shouldn't show the dialog until the new time Open Camera upgrades.
+                // We set the latest_version whether or not the dialog is shown - if we showed the first time dialog, we don\'t
+                // want to then show the What\'s New dialog next time we run! Similarly if the user had disabled showing the dialog,
+                // but then enables it, we still shouldn\'t show the dialog until the new time Open Camera upgrades.\n
                 SharedPreferences.Editor editor = sharedPreferences.edit();
                 editor.putInt(PreferenceKeys.LatestVersionPreferenceKey, version_code);
                 editor.apply();
@@ -719,18 +800,18 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         screenLockOnBackPressedCallback = new ScreenLockOnBackPressedCallback(false);
         this.getOnBackPressedDispatcher().addCallback(this, screenLockOnBackPressedCallback);
 
-        // create notification channel - only needed on Android 8+
-        // update: notifications now removed due to needing permissions on Android 13+
-        /*if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ) {
-            CharSequence name = "Open Camera Image Saving";
-            String description = "Notification channel for processing and saving images in the background";
-            int importance = NotificationManager.IMPORTANCE_LOW;
-            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, name, importance);
-            channel.setDescription(description);
-            // Register the channel with the system; you can't change the importance
-            // or other notification behaviors after this
-            NotificationManager notificationManager = getSystemService(NotificationManager.class);
-            notificationManager.createNotificationChannel(channel);
+        // create notification channel - only needed on Android 8+\n
+        // update: notifications now removed due to needing permissions on Android 13+\n
+        /*if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ) {\n
+            CharSequence name = "Open Camera Image Saving";\n
+            String description = "Notification channel for processing and saving images in the background";\n
+            int importance = NotificationManager.IMPORTANCE_LOW;\n
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, name, importance);\n
+            channel.setDescription(description);\n
+            // Register the channel with the system; you can\'t change the importance\n
+            // or other notification behaviors after this\n
+            NotificationManager notificationManager = getSystemService(NotificationManager.class);\n
+            notificationManager.createNotificationChannel(channel);\n
         }*/
 
         // so we get the icons rotation even when rotating for the first time - see onSystemOrientationChanged
@@ -1524,7 +1605,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     public float getWaterDensity() {
         return this.mWaterDensity;
     }
-
     @Override
     protected void onResume() {
         long debug_time = 0;
@@ -1535,16 +1615,16 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         super.onResume();
         this.app_is_paused = false; // must be set before initLocation() at least
 
-        // this is intentionally true, not false, as the uncovering happens in DrawPreview when we receive frames from the camera after it's opened
-        // (this should already have been set from the call in onPause(), but we set it here again just in case)
+        // this is intentionally true, not false, as the uncovering happens in DrawPreview when we receive frames from the camera after it\'s opened
+        // (this should already have been set from the call in onPause(), but we set it here again just in case)\n
         applicationInterface.getDrawPreview().setCoverPreview(true);
 
-        applicationInterface.getDrawPreview().clearDimPreview(); // shouldn't be needed, but just in case the dim preview flag got set somewhere
+        applicationInterface.getDrawPreview().clearDimPreview(); // shouldn\'t be needed, but just in case the dim preview flag got set somewhere
 
         cancelImageSavingNotification();
 
         // Set black window background; also needed if we hide the virtual buttons in immersive mode
-        // Note that we do it here rather than customising the theme's android:windowBackground, so this doesn't affect other views - in particular, the MyPreferenceFragment settings
+        // Note that we do it here rather than customising the theme\'s android:windowBackground, so this doesn\'t affect other views - in particular, the MyPreferenceFragment settings\n
         getWindow().getDecorView().getRootView().setBackgroundColor(Color.BLACK);
 
         if( edge_to_edge_mode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM ) {
@@ -1555,6 +1635,9 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         registerDisplayListener();
 
         mSensorManager.registerListener(accelerometerListener, mSensorAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+        if( mSensorGravity != null ) { // Register gravity sensor listener
+            mSensorManager.registerListener(gravityListener, mSensorGravity, SensorManager.SENSOR_DELAY_FASTEST); // Or SENSOR_DELAY_GAME for high precision
+        }
         magneticSensor.registerMagneticListener(mSensorManager);
         if( orientationEventListener != null ) {
             orientationEventListener.enable();
@@ -1575,11 +1658,11 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         resetCachedSystemOrientation(); // just in case?
         mainUI.layoutUI();
 
-        // If the cached last media has exif datetime info, it's fine to just call updateGalleryIcon(),
+        // If the cached last media has exif datetime info, it\'s fine to just call updateGalleryIcon(),
         // which will find the most recent media (and takes care of if the cached last image may have
-        // been deleted).
-        // If it doesn't have exif datetime tags, updateGalleryIcon() may not be able to find the most
-        // recent media, so we stick with the cached uri if we can test that it's still accessible.
+        // been deleted).\n
+        // If it doesn\'t have exif datetime tags, updateGalleryIcon() may not be able to find the most
+        // recent media, so we stick with the cached uri if we can test that it\'s still accessible.\n
         if( !getStorageUtils().getLastMediaScannedHasNoExifDateTime() ) {
             updateGalleryIcon();
         }
@@ -1612,8 +1695,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             if( uri_exists ) {
                 if( MyDebug.LOG )
                     Log.d(TAG, "    most recent uri exists");
-                // also re-allow ghost image again in case that option is set (since we won't be
-                // doing this via updateGalleryIcon())
+                // also re-allow ghost image again in case that option is set (since we won\'t be
+                // doing this via updateGalleryIcon())\n
                 applicationInterface.getDrawPreview().allowGhostImage();
             }
             else {
@@ -1626,15 +1709,14 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         applicationInterface.reset(false); // should be called before opening the camera in preview.onResume()
 
         if( !camera_in_background ) {
-            // don't restart camera if we're showing a dialog or settings
+            // don\'t restart camera if we\'re showing a dialog or settings
             preview.onResume();
         }
 
         {
-            // show a toast for the camera if it's not the first for front of back facing (otherwise on multi-front/back camera
-            // devices, it's easy to forget if set to a different camera)
-            // but we only show this when resuming, not every time the camera opens
-            // OR show the toast for the camera if it's a physical camera
+            // show a toast for the camera if it\'s not the first for front of back facing (otherwise on multi-front/back camera
+            // devices, it\'s easy to forget if set to a different camera)\n
+            // OR show the toast for the camera if it\'s a physical camera\n
             int cameraId = applicationInterface.getCameraIdPref();
             String cameraIdSPhysical = applicationInterface.getCameraIdSPhysicalPref();
             if( cameraId > 0 || cameraIdSPhysical != null ) {
@@ -1704,7 +1786,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             initImmersiveMode();
         }
     }
-
     @Override
     protected void onPause() {
         long debug_time = 0;
@@ -1724,6 +1805,9 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         }
         unregisterDisplayListener();
         mSensorManager.unregisterListener(accelerometerListener);
+        if( mSensorGravity != null ) { // Deregister gravity sensor listener
+            mSensorManager.unregisterListener(gravityListener);
+        }
         magneticSensor.unregisterMagneticListener(mSensorManager);
         if( orientationEventListener != null ) {
             orientationEventListener.disable();
@@ -1740,7 +1824,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         applicationInterface.clearLastImages(); // this should happen when pausing the preview, but call explicitly just to be safe
         applicationInterface.getDrawPreview().clearGhostImage();
         preview.onPause();
-        applicationInterface.getDrawPreview().setCoverPreview(true); // must be after we've closed the preview (otherwise risk that further frames from preview will unset the cover_preview flag in DrawPreview)
+        applicationInterface.getDrawPreview().setCoverPreview(true); // must be after we\'ve closed the preview (otherwise risk that further frames from preview will unset the cover_preview flag in DrawPreview)
 
         if( applicationInterface.getImageSaver().getNImagesToSave() > 0) {
             createImageSavingNotification();
@@ -1750,11 +1834,11 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             update_gallery_future.cancel(true);
         }
 
-        // intentionally do this again, just in case something turned location on since - keep this right at the end:
+        // intentionally do this again, just in case something turned location on since - keep this right at the end:\n
         applicationInterface.getLocationSupplier().freeLocationListeners();
 
-        // don't want to enter immersive mode when in background
-        // needs to be last in case anything above indirectly called initImmersiveMode()
+        // don\'t want to enter immersive mode when in background
+        // needs to be last in case anything above indirectly called initImmersiveMode()\n
         cancelImmersiveTimer();
 
         if( MyDebug.LOG ) {

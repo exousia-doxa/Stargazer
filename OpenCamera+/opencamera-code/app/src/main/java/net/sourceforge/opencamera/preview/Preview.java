@@ -1,45 +1,5 @@
 package net.sourceforge.opencamera.preview;
 
-import net.sourceforge.opencamera.JavaImageFunctions;
-import net.sourceforge.opencamera.JavaImageProcessing;
-import net.sourceforge.opencamera.cameracontroller.RawImage;
-//import net.sourceforge.opencamera.MainActivity;
-import net.sourceforge.opencamera.MyDebug;
-import net.sourceforge.opencamera.R;
-import net.sourceforge.opencamera.TakePhoto;
-import net.sourceforge.opencamera.ToastBoxer;
-import net.sourceforge.opencamera.cameracontroller.CameraController;
-import net.sourceforge.opencamera.cameracontroller.CameraController1;
-import net.sourceforge.opencamera.cameracontroller.CameraController2;
-import net.sourceforge.opencamera.cameracontroller.CameraControllerException;
-import net.sourceforge.opencamera.cameracontroller.CameraControllerManager;
-import net.sourceforge.opencamera.cameracontroller.CameraControllerManager1;
-import net.sourceforge.opencamera.cameracontroller.CameraControllerManager2;
-import net.sourceforge.opencamera.preview.ApplicationInterface.NoFreeStorageException;
-import net.sourceforge.opencamera.preview.camerasurface.CameraSurface;
-import net.sourceforge.opencamera.preview.camerasurface.MySurfaceView;
-import net.sourceforge.opencamera.preview.camerasurface.MyTextureView;
-
-import java.io.File;
-//import java.io.FileOutputStream;
-import java.io.IOException;
-//import java.io.OutputStream;
-import java.lang.ref.WeakReference;
-import java.text.DecimalFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
@@ -68,16 +28,11 @@ import android.os.AsyncTask;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
-//import android.os.Environment;
 import android.os.Handler;
 import android.os.ParcelFileDescriptor;
-
-import androidx.annotation.NonNull;
-import androidx.core.content.ContextCompat;
 import android.util.Log;
 import android.util.Pair;
 import android.view.GestureDetector;
-//import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.OrientationEventListener;
@@ -86,14 +41,57 @@ import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.TextureView;
 import android.view.View;
+import android.view.View.MeasureSpec;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.view.WindowManager;
-import android.view.View.MeasureSpec;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
+
+import net.sourceforge.opencamera.JavaImageFunctions;
+import net.sourceforge.opencamera.JavaImageProcessing;
+import net.sourceforge.opencamera.MainActivity;
+import net.sourceforge.opencamera.MyDebug;
+import net.sourceforge.opencamera.R;
+import net.sourceforge.opencamera.TakePhoto;
+import net.sourceforge.opencamera.ToastBoxer;
+import net.sourceforge.opencamera.cameracontroller.CameraController;
+import net.sourceforge.opencamera.cameracontroller.CameraController1;
+import net.sourceforge.opencamera.cameracontroller.CameraController2;
+import net.sourceforge.opencamera.cameracontroller.CameraControllerException;
+import net.sourceforge.opencamera.cameracontroller.CameraControllerManager;
+import net.sourceforge.opencamera.cameracontroller.CameraControllerManager1;
+import net.sourceforge.opencamera.cameracontroller.CameraControllerManager2;
+import net.sourceforge.opencamera.cameracontroller.RawImage;
+import net.sourceforge.opencamera.preview.ApplicationInterface.NoFreeStorageException;
+import net.sourceforge.opencamera.preview.camerasurface.CameraSurface;
+import net.sourceforge.opencamera.preview.camerasurface.MySurfaceView;
+import net.sourceforge.opencamera.preview.camerasurface.MyTextureView;
+
+import java.io.File;
+import java.io.IOException;
+import java.lang.ref.WeakReference;
+import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.TimeZone;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** This class was originally named due to encapsulating the camera preview,
  *  but in practice it's grown to more than this, and includes most of the
@@ -6705,7 +6703,24 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             public void onPictureTaken(byte[] data) {
                 if( MyDebug.LOG )
                     Log.d(TAG, "onPictureTaken");
-                initDate();
+                initDate(); // This sets current_date
+
+                // Отримання UTC часу
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'UTC'", Locale.ROOT);
+                sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
+                String utcTime = sdf.format(current_date);
+                if( MyDebug.LOG )
+                    Log.d(TAG, "Captured UTC time: " + utcTime);
+
+                // Отримання даних Gravity Sensor з MainActivity
+                MainActivity mainActivity = (MainActivity) applicationInterface.getContext();
+                float[] gravityData = mainActivity.getGravitySensorData();
+                if( MyDebug.LOG )
+                    Log.d(TAG, "Gravity Sensor Data: X=" + gravityData[0] + ", Y=" + gravityData[1] + ", Z=" + gravityData[2]);
+
+                // Показати Pop-up вікно
+                mainActivity.showCaptureDetailsPopup(utcTime, gravityData);
+
                 if( !applicationInterface.onPictureTaken(data, current_date) ) {
                     if( MyDebug.LOG )
                         Log.e(TAG, "applicationInterface.onPictureTaken failed");
@@ -6719,7 +6734,24 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
             public void onRawPictureTaken(RawImage raw_image) {
                 if( MyDebug.LOG )
                     Log.d(TAG, "onRawPictureTaken");
-                initDate();
+                initDate(); // This sets current_date
+
+                // Отримання UTC часу
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'UTC'", Locale.ROOT);
+                sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
+                String utcTime = sdf.format(current_date);
+                if( MyDebug.LOG )
+                    Log.d(TAG, "Captured UTC time: " + utcTime);
+
+                // Отримання даних Gravity Sensor з MainActivity
+                MainActivity mainActivity = (MainActivity) applicationInterface.getContext();
+                float[] gravityData = mainActivity.getGravitySensorData();
+                if( MyDebug.LOG )
+                    Log.d(TAG, "Gravity Sensor Data: X=" + gravityData[0] + ", Y=" + gravityData[1] + ", Z=" + gravityData[2]);
+
+                // Показати Pop-up вікно
+                mainActivity.showCaptureDetailsPopup(utcTime, gravityData);
+
                 if( !applicationInterface.onRawPictureTaken(raw_image, current_date) ) {
                     if( MyDebug.LOG )
                         Log.e(TAG, "applicationInterface.onRawPictureTaken failed");
