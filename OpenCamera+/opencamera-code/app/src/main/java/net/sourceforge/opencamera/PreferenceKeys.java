@@ -3,6 +3,9 @@ package net.sourceforge.opencamera;
 /** Stores all of the string keys used for SharedPreferences.
  */
 public class PreferenceKeys {
+    public static final String MatrixWidthPreferenceKey = "preference_matrix_width";
+    public static final String MatrixHeightPreferenceKey = "preference_matrix_height";
+    public static final String FocalLengthPreferenceKey = "preference_focal_length";
     // must be static, to safely call from other Activities
 
     /** If this preference is set, no longer show the intro dialog.

@@ -5,6 +5,14 @@
     <string name="gravity_x_label">X:</string>
     <string name="gravity_y_label">Y:</string>
     <string name="gravity_z_label">Z:</string>
+    <string name="preference_category_stargazer">Stargazer Settings</string>
+    <string name="preference_matrix_width">Matrix Width</string>
+    <string name="preference_matrix_width_summary">Set the width of the camera sensor matrix.</string>
+    <string name="preference_matrix_height">Matrix Height</string>
+    <string name="preference_matrix_height_summary">Set the height of the camera sensor matrix.</string>
+    <string name="preference_focal_length">Focal Length</string>
+    <string name="preference_focal_length_summary">Set the focal length of the camera.</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
 
     <string name="app_name">Open Camera</string> <!-- shouldn't be translated, unless deemed appropriate e.g. alternative alphabets -->
     <string name="action_settings">Settings</string>

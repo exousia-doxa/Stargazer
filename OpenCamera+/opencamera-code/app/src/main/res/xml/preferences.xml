@@ -65,6 +65,32 @@
     <!-- </PreferenceCategory> -->
 
     <PreferenceCategory
+        android:key="preference_category_stargazer"
+        android:title="@string/preference_category_stargazer">
+
+        <EditTextPreference
+            android:key="preference_matrix_width"
+            android:title="@string/preference_matrix_width"
+            android:summary="@string/preference_matrix_width_summary"
+            android:defaultValue="0"
+            android:inputType="numberDecimal" />
+
+        <EditTextPreference
+            android:key="preference_matrix_height"
+            android:title="@string/preference_matrix_height"
+            android:summary="@string/preference_matrix_height_summary"
+            android:defaultValue="0"
+            android:inputType="numberDecimal" />
+
+        <EditTextPreference
+            android:key="preference_focal_length"
+            android:title="@string/preference_focal_length"
+            android:summary="@string/preference_focal_length_summary"
+            android:defaultValue="0"
+            android:inputType="numberDecimal" />
+
+    </PreferenceCategory>
+    <PreferenceCategory
         android:key="preference_category_camera_controls"
         android:title="@string/preference_category_camera_controls">
 
@@ -129,7 +155,6 @@
             />
 
     </PreferenceCategory>
-
     <PreferenceCategory
         android:key="preference_category_camera_quality"
         android:title="@string/preference_category_camera_quality">
@@ -141,7 +166,7 @@
             android:persistent="false"
             android:fragment="net.sourceforge.opencamera.PreferenceSubPhoto"
             />
-    
+
         <PreferenceScreen
             android:key="preference_screen_video_settings"
             android:title="@string/preference_screen_video_settings"

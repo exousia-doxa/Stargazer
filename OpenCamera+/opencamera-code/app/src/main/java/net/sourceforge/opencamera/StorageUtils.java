@@ -45,7 +45,7 @@ import android.util.Log;
 public class StorageUtils {
     private static final String TAG = "StorageUtils";
 
-    static final int MEDIA_TYPE_IMAGE = 1;
+    public static final int MEDIA_TYPE_IMAGE = 1;
     static final int MEDIA_TYPE_VIDEO = 2;
     static final int MEDIA_TYPE_PREFS = 3;
     static final int MEDIA_TYPE_GYRO_INFO = 4;
@@ -680,7 +680,7 @@ public class StorageUtils {
         return result;
     }
 
-    String createMediaFilename(int type, String suffix, int count, String extension, Date current_date) {
+    public String createMediaFilename(int type, String suffix, int count, String extension, Date current_date) {
         String index = "";
         if( count > 0 ) {
             index = "_" + count; // try to find a unique filename

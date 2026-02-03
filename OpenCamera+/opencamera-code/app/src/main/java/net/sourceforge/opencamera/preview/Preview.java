@@ -58,6 +58,7 @@ import net.sourceforge.opencamera.JavaImageProcessing;
 import net.sourceforge.opencamera.MainActivity;
 import net.sourceforge.opencamera.MyDebug;
 import net.sourceforge.opencamera.R;
+import net.sourceforge.opencamera.StorageUtils;
 import net.sourceforge.opencamera.TakePhoto;
 import net.sourceforge.opencamera.ToastBoxer;
 import net.sourceforge.opencamera.cameracontroller.CameraController;
@@ -6699,63 +6700,69 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
                         Log.d(TAG, "picture taken on date: " + current_date);
                 }
             }
-
+            // Inside onPictureTaken method of PictureCallback
             public void onPictureTaken(byte[] data) {
-                if( MyDebug.LOG )
+                if (MyDebug.LOG)
                     Log.d(TAG, "onPictureTaken");
                 initDate(); // This sets current_date
 
-                // Отримання UTC часу
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'UTC'", Locale.ROOT);
-                sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
-                String utcTime = sdf.format(current_date);
-                if( MyDebug.LOG )
-                    Log.d(TAG, "Captured UTC time: " + utcTime);
-
-                // Отримання даних Gravity Sensor з MainActivity
-                MainActivity mainActivity = (MainActivity) applicationInterface.getContext();
-                float[] gravityData = mainActivity.getGravitySensorData();
-                if( MyDebug.LOG )
-                    Log.d(TAG, "Gravity Sensor Data: X=" + gravityData[0] + ", Y=" + gravityData[1] + ", Z=" + gravityData[2]);
-
-                // Показати Pop-up вікно
-                mainActivity.showCaptureDetailsPopup(utcTime, gravityData);
-
-                if( !applicationInterface.onPictureTaken(data, current_date) ) {
-                    if( MyDebug.LOG )
+                if (!applicationInterface.onPictureTaken(data, current_date)) {
+                    if (MyDebug.LOG)
                         Log.e(TAG, "applicationInterface.onPictureTaken failed");
                     success = false;
-                }
-                else {
+                } else {
                     success = true;
                 }
-            }
 
-            public void onRawPictureTaken(RawImage raw_image) {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "onRawPictureTaken");
-                initDate(); // This sets current_date
-
-                // Отримання UTC часу
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS 'UTC'", Locale.ROOT);
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
                 sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
                 String utcTime = sdf.format(current_date);
-                if( MyDebug.LOG )
-                    Log.d(TAG, "Captured UTC time: " + utcTime);
 
-                // Отримання даних Gravity Sensor з MainActivity
+                Location location = applicationInterface.getLocation();
+                double latitude = (location != null) ? location.getLatitude() : 0.0;
+                double longitude = (location != null) ? location.getLongitude() : 0.0;
+
                 MainActivity mainActivity = (MainActivity) applicationInterface.getContext();
                 float[] gravityData = mainActivity.getGravitySensorData();
-                if( MyDebug.LOG )
-                    Log.d(TAG, "Gravity Sensor Data: X=" + gravityData[0] + ", Y=" + gravityData[1] + ", Z=" + gravityData[2]);
 
-                // Показати Pop-up вікно
-                mainActivity.showCaptureDetailsPopup(utcTime, gravityData);
+                String imageName = mainActivity.getStorageUtils().createMediaFilename(
+                        StorageUtils.MEDIA_TYPE_IMAGE, "", 0, ".jpg", current_date);
+                imageName = imageName.substring(0, imageName.lastIndexOf('.'));
 
-                if( !applicationInterface.onRawPictureTaken(raw_image, current_date) ) {
-                    if( MyDebug.LOG )
+                CameraController.Size photoSize = camera_controller.getPictureSize();
+
+                mainActivity.showCaptureDetailsPopup(imageName, photoSize.width, photoSize.height, utcTime, latitude, longitude, gravityData);
+            }
+
+            // Inside onRawPictureTaken method of PictureCallback
+            public void onRawPictureTaken(RawImage raw_image) {
+                if (MyDebug.LOG)
+                    Log.d(TAG, "onRawPictureTaken");
+                initDate();
+
+                if (!applicationInterface.onRawPictureTaken(raw_image, current_date)) {
+                    if (MyDebug.LOG)
                         Log.e(TAG, "applicationInterface.onRawPictureTaken failed");
                 }
+
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
+                sdf.setTimeZone(TimeZone.getTimeZone("UTC"));
+                String utcTime = sdf.format(current_date);
+
+                Location location = applicationInterface.getLocation();
+                double latitude = (location != null) ? location.getLatitude() : 0.0;
+                double longitude = (location != null) ? location.getLongitude() : 0.0;
+
+                MainActivity mainActivity = (MainActivity) applicationInterface.getContext();
+                float[] gravityData = mainActivity.getGravitySensorData();
+
+                String imageName = mainActivity.getStorageUtils().createMediaFilename(
+                        StorageUtils.MEDIA_TYPE_IMAGE, "", 0, ".dng", current_date);
+                imageName = imageName.substring(0, imageName.lastIndexOf('.'));
+
+                CameraController.Size photoSize = camera_controller.getPictureSize();
+
+                mainActivity.showCaptureDetailsPopup(imageName, photoSize.width, photoSize.height, utcTime, latitude, longitude, gravityData);
             }
 
             public void onBurstPictureTaken(List<byte[]> images) {

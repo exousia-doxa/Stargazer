@@ -924,16 +924,16 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
     @Override
     public void onResume() {
         super.onResume();
-
-        setBackground(this);
-
-        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this.getActivity());
+        SharedPreferences sharedPreferences = getPreferenceScreen().getSharedPreferences();
         sharedPreferences.registerOnSharedPreferenceChangeListener(this);
+        // Initialize summaries of all preferences
+        initSummaries(getPreferenceScreen());
     }
 
     @Override
     public void onPause() {
         super.onPause();
+        getPreferenceScreen().getSharedPreferences().unregisterOnSharedPreferenceChangeListener(this);
     }
 
     @Override
@@ -976,19 +976,70 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
      * MainActivity.onActivityResult).
      * Also programmatically sets summary (see setSummary).
      */
-    public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
+    @Override
+    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
         if( MyDebug.LOG )
             Log.d(TAG, "onSharedPreferenceChanged: " + key);
+        updatePreference(findPreference(key));
 
-        if( key == null ) {
-            // On Android 11+, when targetting Android 11+, this method is called with key==null
-            // if preferences are cleared. Unclear if this happens here in practice, but return
-            // just in case.
+        // Stargazer specific preferences update
+        switch (key) {
+            case PreferenceKeys.MatrixWidthPreferenceKey:
+            case PreferenceKeys.MatrixHeightPreferenceKey:
+            case PreferenceKeys.FocalLengthPreferenceKey:
+                EditTextPreference editTextPref = (EditTextPreference)findPreference(key);
+                if (editTextPref != null) {
+                    String value = editTextPref.getText();
+                    if (value == null || value.trim().isEmpty()) {
+                        value = "0"; // Default value if empty
+                    }
+                    // Update summary to show the current value
+                    editTextPref.setSummary(value);
+                }
+                break;
+        }
+    }
+
+    // Helper method to initialize summaries on startup
+    private void initSummaries(Preference p) {
+        if (p instanceof PreferenceGroup) {
+            PreferenceGroup pGrp = (PreferenceGroup) p;
+            for (int i = 0; i < pGrp.getPreferenceCount(); i++) {
+                initSummaries(pGrp.getPreference(i));
+            }
+        } else {
+            updatePreference(p);
+        }
+    }
+
+    // Updated updatePreference method to handle Stargazer prefs
+    private void updatePreference(Preference p) {
+        if (p == null) {
             return;
         }
+        if (p instanceof ListPreference) {
+            ListPreference listp = (ListPreference) p;
+            p.setSummary(listp.getEntry());
+        } else if (p instanceof EditTextPreference) {
+            EditTextPreference editTextPref = (EditTextPreference) p;
+            String key = editTextPref.getKey();
 
-        Preference pref = findPreference(key);
-        handleOnSharedPreferenceChanged(prefs, key, pref);
+            switch (key) {
+                case PreferenceKeys.MatrixWidthPreferenceKey:
+                case PreferenceKeys.MatrixHeightPreferenceKey:
+                case PreferenceKeys.FocalLengthPreferenceKey:
+                    String value = editTextPref.getText();
+                    if (value == null || value.trim().isEmpty()) {
+                        value = "0"; // Default value
+                    }
+                    editTextPref.setSummary(value);
+                    break;
+                default:
+                    // For other EditTextPreferences if any
+                    p.setSummary(editTextPref.getText());
+                    break;
+            }
+        }
     }
 
     static void handleOnSharedPreferenceChanged(SharedPreferences prefs, String key, Preference pref) {

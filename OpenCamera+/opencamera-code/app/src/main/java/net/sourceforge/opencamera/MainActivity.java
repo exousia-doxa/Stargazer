@@ -11,6 +11,15 @@ import net.sourceforge.opencamera.ui.FolderChooserDialog;
 import net.sourceforge.opencamera.ui.MainUI;
 import net.sourceforge.opencamera.ui.ManualSeekbars;
 
+import java.math.BigDecimal;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.widget.ScrollView;
+import android.widget.Toast;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -282,35 +291,128 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             return Arrays.copyOf(gravityValues, gravityValues.length);
         }
     }
+    // Додай цей імпорт на початку файлу
+// ... інші імпорти
 
-    public void showCaptureDetailsPopup(String utcTime, float[] gravityData) {
-        if( MyDebug.LOG )
+// ... всередині класу MainActivity
+
+    public void showCaptureDetailsPopup(String imageName, int photoWidth, int photoHeight, String time, double latitude, double longitude, float[] gravityData) {
+        if (MyDebug.LOG)
             Log.d(TAG, "showCaptureDetailsPopup");
 
-        // Ensure we are on the UI thread to display the dialog
-        runOnUiThread(() -> {
-            AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
-            alertDialog.setTitle(R.string.capture_details_title);
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+        String matrixWidthStr = sharedPreferences.getString(PreferenceKeys.MatrixWidthPreferenceKey, "0");
+        String matrixHeightStr = sharedPreferences.getString(PreferenceKeys.MatrixHeightPreferenceKey, "0");
+        String focalLengthStr = sharedPreferences.getString(PreferenceKeys.FocalLengthPreferenceKey, "0");
 
-            LayoutInflater inflater = getLayoutInflater();
-            View dialogView = inflater.inflate(R.layout.popup_capture_details, null);
+        BigDecimal matrixWidth = BigDecimal.ZERO;
+        BigDecimal matrixHeight = BigDecimal.ZERO;
+        BigDecimal focalLength = BigDecimal.ZERO;
 
-            TextView utcTimeTextView = dialogView.findViewById(R.id.utc_time_textview);
-            TextView gravityXTextView = dialogView.findViewById(R.id.gravity_x_textview);
-            TextView gravityYTextView = dialogView.findViewById(R.id.gravity_y_textview);
-            TextView gravityZTextView = dialogView.findViewById(R.id.gravity_z_textview);
+        try {
+            if (matrixWidthStr != null && !matrixWidthStr.isEmpty())
+                matrixWidth = new BigDecimal(matrixWidthStr);
+        } catch (NumberFormatException e) {
+            if (MyDebug.LOG) Log.e(TAG, "Could not parse matrixWidth: " + matrixWidthStr);
+        }
+        try {
+            if (matrixHeightStr != null && !matrixHeightStr.isEmpty())
+                matrixHeight = new BigDecimal(matrixHeightStr);
+        } catch (NumberFormatException e) {
+            if (MyDebug.LOG) Log.e(TAG, "Could not parse matrixHeight: " + matrixHeightStr);
+        }
+        try {
+            if (focalLengthStr != null && !focalLengthStr.isEmpty())
+                focalLength = new BigDecimal(focalLengthStr);
+        } catch (NumberFormatException e) {
+            if (MyDebug.LOG) Log.e(TAG, "Could not parse focalLength: " + focalLengthStr);
+        }
 
-            utcTimeTextView.setText(getString(R.string.utc_time_label) + " " + utcTime);
-            gravityXTextView.setText(getString(R.string.gravity_x_label) + " " + String.format(Locale.ROOT, "%.7f", gravityData[0]));
-            gravityYTextView.setText(getString(R.string.gravity_y_label) + " " + String.format(Locale.ROOT, "%.7f", gravityData[1]));
-            gravityZTextView.setText(getString(R.string.gravity_z_label) + " " + String.format(Locale.ROOT, "%.7f", gravityData[2]));
+        try {
+            JSONObject root = new JSONObject();
+            root.put("input_image", imageName + ".jpg");
+            root.put("output_directory", "temp");
 
-            alertDialog.setView(dialogView);
-            alertDialog.setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                // Опціонально: можеш додати якусь логіку при натисканні "OK"
+            JSONArray plateSolveParams = new JSONArray();
+            plateSolveParams.put("-v");
+            plateSolveParams.put("--overwrite");
+            plateSolveParams.put("--downsample");
+            plateSolveParams.put("1");
+            plateSolveParams.put("-r");
+            plateSolveParams.put("-J");
+            plateSolveParams.put("-l");
+            plateSolveParams.put("6000");
+            plateSolveParams.put("--objs");
+            plateSolveParams.put("100");
+            root.put("plate_solve_parameters", plateSolveParams);
+
+            JSONArray cameraData = new JSONArray();
+            JSONArray photoSize = new JSONArray();
+            photoSize.put(photoWidth);
+            photoSize.put(photoHeight);
+            cameraData.put(photoSize);
+
+            JSONArray matrixSize = new JSONArray();
+            matrixSize.put(matrixWidth);
+            matrixSize.put(matrixHeight);
+            cameraData.put(matrixSize);
+
+            cameraData.put(focalLength); // Використовуємо BigDecimal для точності
+            root.put("camera_data", cameraData);
+
+            JSONArray photoData = new JSONArray();
+            photoData.put(photoSize);
+            photoData.put(time);
+            JSONArray location = new JSONArray();
+            if (latitude != 0.0 || longitude != 0.0) {
+                location.put(latitude);
+                location.put(longitude);
+            } else {
+                location.put("-");
+                location.put("-");
+            }
+            photoData.put(location);
+            root.put("photo_data", photoData);
+
+            JSONArray orientationData = new JSONArray();
+            JSONArray gravity = new JSONArray();
+            gravity.put(gravityData[0]);
+            gravity.put(gravityData[1]);
+            gravity.put(gravityData[2]);
+            orientationData.put(gravity);
+            orientationData.put(new JSONArray());
+            root.put("orientation_data", orientationData);
+
+            final String jsonString = root.toString(4);
+
+            runOnUiThread(() -> {
+                AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
+                alertDialog.setTitle(R.string.capture_details_title);
+
+                ScrollView scrollView = new ScrollView(this);
+                TextView textView = new TextView(this);
+                textView.setText(jsonString);
+                textView.setTextIsSelectable(true);
+                textView.setPadding(40, 20, 40, 20);
+                textView.setOnClickListener(v -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    ClipData clip = ClipData.newPlainText("capture_details", jsonString);
+                    clipboard.setPrimaryClip(clip);
+                    Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show();
+                });
+                scrollView.addView(textView);
+
+                alertDialog.setView(scrollView);
+                alertDialog.setPositiveButton(android.R.string.ok, null);
+                alertDialog.show();
             });
-            alertDialog.show();
-        });
+
+        } catch (JSONException e) {
+            e.printStackTrace();
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Error creating JSON data", Toast.LENGTH_LONG).show();
+            });
+        }
     }
 
     private final SensorEventListener gravityListener = new SensorEventListener() {
