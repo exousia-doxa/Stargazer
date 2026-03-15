@@ -7655,7 +7655,7 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         }
         if( MyDebug.LOG )
             Log.d(TAG, "max: " + max);
-        return max;
+        return max*10;
     }
 
     public boolean supportsExposures() {

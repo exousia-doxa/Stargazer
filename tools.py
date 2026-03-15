@@ -147,6 +147,37 @@ def rotation_angle(R):
     cos_a = np.clip(cos_a, -1.0, 1.0)
     return np.arccos(cos_a)
 
+
+def pixel_angle_deg_from_center(point_xy, camera_data):
+    """
+    Compute angular distance (degrees) between image center and a pixel coordinate.
+
+    point_xy: [x_px, y_px]
+    camera_data: [[w_px,h_px], [w_mm,h_mm], focal_length_mm]
+    """
+    cam0 = np.asarray(camera_data[0], dtype=np.float64)   # [w_px, h_px]
+    cam1 = np.asarray(camera_data[1], dtype=np.float64)   # [w_mm, h_mm]
+    f = float(camera_data[2])                             # mm
+
+    cx = cam0[0] / 2.0
+    cy = cam0[1] / 2.0
+
+    dx = float(point_xy[0]) - cx
+    dy = cy - float(point_xy[1])
+
+    # convert pixel offsets to mm on sensor
+    px_per_mm_x = cam0[0] / cam1[0]
+    px_per_mm_y = cam0[1] / cam1[1]
+
+    x_mm = dx / px_per_mm_x
+    y_mm = dy / px_per_mm_y
+
+    r_mm = np.sqrt(x_mm**2 + y_mm**2)
+
+    # angular separation between optical axis and the ray through the pixel
+    theta_rad = np.arctan2(r_mm, f)
+    return float(np.degrees(theta_rad))
+
 def average_quaternions(quats, weights=None):
     if weights is None:
         weights = np.ones(len(quats))

@@ -367,9 +367,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             if (latitude != 0.0 || longitude != 0.0) {
                 location.put(latitude);
                 location.put(longitude);
-            } else {
-                location.put("-");
-                location.put("-");
             }
             photoData.put(location);
             root.put("photo_data", photoData);
@@ -693,7 +690,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             orientationEventListener = new OrientationEventListener(this) {
                 @Override
                 public void onOrientationChanged(int orientation) {
-                    MainActivity.this.mainUI.onOrientationChanged(orientation);
+//                    MainActivity.this.mainUI.onOrientationChanged(orientation);
                 }
             };
             if( MyDebug.LOG )
