@@ -226,3 +226,47 @@ def combine_rotation_corrections(
     q_avg = average_quaternions(quats, weights)
     return quat_to_rotmat(q_avg)
 
+from PIL import Image, ImageDraw
+
+def drawing(arguments, zenith_photo_coordinates, coefficient_location):
+    try:
+        linked = arguments.get("linked_image")
+        if linked is None:
+            raise ValueError("No linked image found in metadata for drawing")
+        img_path = Path(linked) if Path(linked).is_absolute() else Path("./") / linked
+        img = Image.open(img_path).convert("RGB")
+        draw = ImageDraw.Draw(img)
+        def to_int_xy(pt):
+            try:
+                x = float(pt[0])
+                y = float(pt[1])
+            except Exception as e:
+                raise ValueError(f"Couldn't convert point {pt} to (x,y): {e}")
+            return int(round(x)), int(round(y))
+        p_grav = to_int_xy(zenith_photo_coordinates)
+        p_coeff = to_int_xy(coefficient_location)
+        pf = arguments.get("photo_full_resolution")
+        if pf is None:
+            center_x = img.width / 2
+            center_y = img.height / 2
+        else:
+            center_x = pf[0] / 2
+            center_y = pf[1] / 2
+        p_center = int(round(center_x)), int(round(center_y))
+        draw.line([p_grav, p_coeff], fill="red", width=10)
+        draw.line([p_grav, p_center], fill="red", width=10)
+        draw.line([p_coeff, p_center], fill="red", width=10)
+        def draw_centered_square(draw_obj, center, size=10, fill="blue"):
+            cx, cy = center
+            half = size // 2
+            bbox = [cx - half, cy - half, cx + half, cy + half]
+            draw_obj.rectangle(bbox, fill=fill)
+        draw_centered_square(draw, p_grav, size=10, fill="green")
+        draw_centered_square(draw, p_coeff, size=10, fill="blue")
+        draw_centered_square(draw, p_center, size=10, fill="blue")
+        out_path = img_path.parent / ("charted_" + img_path.name)
+        img.save(out_path)
+        return str(out_path)
+    except Exception:
+        return None
+
