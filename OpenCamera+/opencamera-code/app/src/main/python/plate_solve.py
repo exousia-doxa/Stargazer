@@ -105,7 +105,7 @@ def extract_astrometry_if_needed():
         input_stream.close()
         
         import tarfile
-        with tarfile.open(tar_path, "r:gz") as tar:
+        with tarfile.open(tar_path, "r:*") as tar:
             tar.extractall(path=stargazer_dir)
         os.remove(tar_path)
         

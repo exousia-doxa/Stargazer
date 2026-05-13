@@ -5887,25 +5887,6 @@ public class Preview implements SurfaceHolder.Callback, TextureView.SurfaceTextu
         }
 
         boolean store_location = applicationInterface.getGeotaggingPref();
-        if( store_location ) {
-            boolean require_location = applicationInterface.getRequireLocationPref();
-            if( require_location ) {
-                if( applicationInterface.getLocation() != null ) {
-                    // fine, we have location
-                }
-                else {
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "location data required, but not available");
-                    showToast(null, R.string.location_not_available, true);
-                    if( !is_video || photo_snapshot )
-                        this.phase = PHASE_NORMAL;
-                    applicationInterface.cameraInOperation(false, false);
-                    if( is_video )
-                        applicationInterface.cameraInOperation(false, true);
-                    return;
-                }
-            }
-        }
 
         if( is_video && !photo_snapshot ) {
             if( MyDebug.LOG )

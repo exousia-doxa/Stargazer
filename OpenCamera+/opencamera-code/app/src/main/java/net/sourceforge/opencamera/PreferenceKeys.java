@@ -20,6 +20,7 @@ public class PreferenceKeys {
     public static final String SolverParityKey           = "preference_solver_parity";             // ListPreference (default/pos/neg)
     public static final String SolverHintEnabledKey      = "preference_solver_hint_enabled";       // SwitchPreference
     public static final String SolverHintRadiusKey       = "preference_solver_hint_radius";        // EditTextPreference (numberDecimal, degrees)
+    public static final String CalibrationLocationEnabledKey = "preference_calibration_location_enabled"; // SwitchPreference
 
     // must be static, to safely call from other Activities
 

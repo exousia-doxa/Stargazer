@@ -1,6 +1,8 @@
 import json
 import sys
+import time
 from pathlib import Path
+from io import StringIO
 import numpy as np
 from PIL import Image
 from astropy.time import Time
@@ -12,6 +14,25 @@ import subprocess
 from dataclasses import dataclass, asdict
 import argparse
 import piexif
+
+
+class DualWriter:
+    def __init__(self, log_file_path):
+        self.log_file = open(log_file_path, 'w', buffering=1)
+        self.original_stdout = sys.stdout
+
+    def write(self, text):
+        self.log_file.write(text)
+        self.log_file.flush()
+        self.original_stdout.write(text)
+        self.original_stdout.flush()
+
+    def flush(self):
+        self.log_file.flush()
+        self.original_stdout.flush()
+
+    def close(self):
+        self.log_file.close()
 
 
 # PhotoMeta: a clear, explicit representation of all photo metadata fields.
@@ -203,6 +224,7 @@ drawing = tools.drawing
 # Input: PhotoMeta, config dict, and boolean flags controlling calibration/IMU behavior
 # Output: dict with computed results and any updated metadata written back to image
 def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=True, is_imu_correction_local_set=False):
+    start_time = time.time()
     results = {
         'file': meta.linked_image,
         'correction_matrix': None,
@@ -215,6 +237,7 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         'approx_icrs_coordinated': None,
         'actual_location': None,
         'location_precision_km': None,
+        'execution_time_ms': None,
         'saved_combined_global_correction': None,
         'no_local_found_message': None,
         'no_match': False,
@@ -231,8 +254,6 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             raise ValueError("phone_focal_length is required")
         if meta.photo_utc_timestamp is None:
             raise ValueError("photo_utc_timestamp is required")
-        if meta.photo_location is None:
-            raise ValueError("photo_location is required")
         
         # Explicitly name variables for clarity
         linked_image = meta.linked_image
@@ -258,57 +279,29 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             output_directory = str(Path(linked_image).with_suffix('.jpg.d'))
         wcs_fits = str(Path(output_directory) / "wcs.fits")
 
-        print(f"\n{'='*60}")
-        print(f"PLATE SOLVE PHASE")
-        print(f"{'='*60}")
-        print(f"Checking for WCS at: {wcs_fits}")
-        sys.stdout.flush()
-        
         if not Path(wcs_fits).exists():
-            print(f"Creating output directory: {output_directory}")
             Path(output_directory).mkdir(parents=True, exist_ok=True)
-            print("WCS file not found - running plate solver...")
-            print()
+            print("Running astrometry.net solver...")
             sys.stdout.flush()
             solved = plate_solve.plate_solve(
                 str(Path(linked_image)), output_directory,
                 plate_solve_arguments, arguments_c,
             )
-            print()
-            sys.stdout.flush()
-            # `plate_solve` returns False when the solver ran cleanly but
-            # could not match the field (e.g. not enough stars / image is
-            # not of the sky). This is an expected outcome, not an error.
             if solved is False:
                 results['no_match'] = True
-                results['no_match_message'] = (
-                    "Could not identify any stars in this image."
-                )
-                print("INFO: plate solver finished without a match; "
-                      "returning no-match result without computing coordinates.")
+                results['no_match_message'] = "Could not identify any stars in this image."
+                print("No matching star pattern found")
+                print()
                 sys.stdout.flush()
                 return _sanitize(results)
-        else:
-            print("WCS file already exists - skipping solve")
-            sys.stdout.flush()
 
         if not Path(wcs_fits).exists():
-            # Defensive: solver said it succeeded but no WCS on disk.
-            # Treat as a real error (rare; usually indicates a bug).
-            raise RuntimeError(f"WCS file still missing after solve attempt: {wcs_fits}")
-        
-        print(f"✓ WCS file verified: {wcs_fits}")
-        print(f"{'='*60}\n")
-        sys.stdout.flush()
+            raise RuntimeError(f"WCS file missing after solve: {wcs_fits}")
 
-        # compute observed zenith pixel coordinates
-        print(f"COORDINATE COMPUTATION PHASE")
-        print(f"{'='*60}")
-        print("Computing zenith pixel coordinates...")
-        sys.stdout.flush()
         obs_zenith_xy = tools.find_xy_via_orientation(camera_data[0], camera_data[1], camera_data[2], photo_data[0], orientation_vector / np.linalg.norm(orientation_vector))
         obs_angle_deg = tools.pixel_angle_deg_from_center(obs_zenith_xy, camera_data)
-        print(f"Observed zenith angle: {obs_angle_deg}°")
+        print(f"Zenith offset from center: {obs_angle_deg:.1f}°")
+        sys.stdout.flush()
 
         # apply global correction if found in config and requested
         cm_list = arguments_c.get('correction_matrix', [])
@@ -364,7 +357,7 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
                 loc_best_guess = None
 
         obs_location = tools.find_location_via_icrs(obs_zenith_icrs_j2000[0], obs_zenith_icrs_j2000[1], observation_timestamp, loc_best_guess)
-        print(f"DEBUG: Computed location: {obs_location}")
+        print(f"Location computed from sky: {obs_location[0]}, {obs_location[1]}")
 
         results.update({'calculated_photo_coordinates': obs_zenith_xy,
                         'calculated_icrs_coordinates_epoch': obs_zenith_icrs,
@@ -373,7 +366,15 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
 
         # perform local calibration if requested and actual GPS is available
         if is_calibrating and actual_latitude is not None:
-            print(f"DEBUG: Calibrating with actual location: {actual_latitude}, {actual_longitude}")
+            print(f"GPS location: {actual_latitude}, {actual_longitude}")
+            from math import radians, cos, sin, asin, sqrt
+            lat1, lon1 = radians(actual_latitude), radians(actual_longitude)
+            lat2, lon2 = radians(obs_location[0]), radians(obs_location[1])
+            dlat, dlon = lat2 - lat1, lon2 - lon1
+            a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+            c = 2 * asin(sqrt(a))
+            km = 6371 * c
+            print(f"Location precision: {km:.1f} km")
             apr_zenith_icrs = tools.find_icrs_via_location(observation_timestamp, actual_latitude, actual_longitude)
             apr_zenith_xy = tools.find_xy_via_icrs(wcs_fits, apr_zenith_icrs)
             results['approx_photo_coordinates'] = apr_zenith_xy
@@ -398,6 +399,8 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
                                 correction_degree=float(apr_angle_deg),
                                 photo_icrs=photo_icrs)
                 results['correction_matrix'] = cor_matrix.tolist()
+        else:
+            print(f"GPS location: not available")
 
         # global calibration is handled by `calibrate_correction` (operates across images)
         results['no_local_found_message'] = None
@@ -406,7 +409,13 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         results['charted_image'] = charted
 
         if results.get('actual_location') and results.get('calculated_location'):
-            location_precision_km = round(((results['actual_location'][0] - results['calculated_location'][0])**2 + (results['actual_location'][1] - results['calculated_location'][1])**2) ** 0.5 * 111, 2)
+            from math import radians, cos, sin, asin, sqrt
+            lat1, lon1 = radians(results['actual_location'][0]), radians(results['actual_location'][1])
+            lat2, lon2 = radians(results['calculated_location'][0]), radians(results['calculated_location'][1])
+            dlat, dlon = lat2 - lat1, lon2 - lon1
+            a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+            c = 2 * asin(sqrt(a))
+            location_precision_km = round(6371 * c, 2)
             results['location_precision_km'] = location_precision_km
     except Exception as e:
         import traceback
@@ -415,6 +424,9 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         print(f"ERROR in solve_photo: {error_msg}")
         print(f"Traceback: {tb_msg}")
         results['error'] = error_msg
+    finally:
+        execution_time_ms = int((time.time() - start_time) * 1000)
+        results['execution_time_ms'] = execution_time_ms
 
     return _sanitize(results)
 
@@ -437,27 +449,53 @@ def _sanitize(obj):
 
 
 def solve_photo_from_json(json_string):
+    original_stdout = sys.stdout
+    dual_writer = None
+
     try:
         data = json.loads(json_string)
         image_name = data.get("input_image")
-        
-        print(f"\n{'#'*60}")
-        print(f"# STARGAZER PLATE SOLVE - STARTED")
-        print(f"{'#'*60}")
-        print(f"Image: {image_name}")
-        print(f"Timestamp: {data.get('photo_data', [None, None])[1]}")
-        print(f"Location: {data.get('photo_data', [None, None, None])[2]}")
-        print(f"Plate solver parameters: {data.get('plate_solve_parameters', [])}")
-        print(f"{'#'*60}\n")
-        sys.stdout.flush()
-        
+
         if not image_name:
             return json.dumps({"error": "'input_image' not found in JSON data"})
 
-        # Build a minimal PhotoMeta from the provided JSON
+        output_directory = data.get("output_directory", "")
+        if output_directory:
+            log_file_path = str(Path(output_directory) / "solve.log")
+            dual_writer = DualWriter(log_file_path)
+            sys.stdout = dual_writer
+
         camera_data = data.get("camera_data", [])
         photo_data = data.get("photo_data", [])
         orientation_data = data.get("orientation_data", [])
+
+        print(f"Image: {image_name}")
+
+        if camera_data and len(camera_data) > 0:
+            w, h = camera_data[0]
+            print(f"Image size: {w}x{h} px")
+        if camera_data and len(camera_data) > 1:
+            sw, sh = camera_data[1]
+            print(f"Sensor size: {sw}x{sh} mm")
+        if camera_data and len(camera_data) > 2:
+            print(f"Focal length: {camera_data[2]} mm")
+
+        if photo_data and len(photo_data) > 1:
+            print(f"Timestamp: {photo_data[1]}")
+        if photo_data and len(photo_data) > 2 and photo_data[2]:
+            lat, lon = photo_data[2]
+            print(f"GPS location: {lat}, {lon}")
+
+        if orientation_data and len(orientation_data) > 0:
+            gx, gy, gz = orientation_data[0]
+            print(f"Gravity vector: [{gx}, {gy}, {gz}]")
+
+        params = data.get("plate_solve_parameters", [])
+        if params:
+            print(f"Solver parameters: {params}")
+
+        print()
+        sys.stdout.flush()
 
         photo_size = tuple(camera_data[0]) if len(camera_data) > 0 else None
         sensor_size = tuple(camera_data[1]) if len(camera_data) > 1 else None
@@ -470,7 +508,7 @@ def solve_photo_from_json(json_string):
 
         meta = PhotoMeta(
             linked_image=image_name,
-            plate_solve_arguments=data.get("plate_solve_parameters", []),
+            plate_solve_arguments=params,
             photo_full_resolution=photo_size,
             phone_sensor_size=sensor_size,
             phone_focal_length=focal_length,
@@ -490,7 +528,6 @@ def solve_photo_from_json(json_string):
             except Exception:
                 arguments_c = {}
         else:
-            # Load config.json from working directory
             try:
                 arguments_c = load_config(Path('config.json'))
             except Exception:
@@ -501,43 +538,30 @@ def solve_photo_from_json(json_string):
         if data.get("output_directory"):
             arguments_c['output_directory'] = data.get("output_directory")
         if data.get("index_directory"):
-            arguments_c['index_directory'] = data.get("index_directory") # Pass index directory
+            arguments_c['index_directory'] = data.get("index_directory")
 
         res = solve_photo(meta, arguments_c)
 
         if res.get('error'):
-            print(f"\n{'#'*60}")
-            print(f"# STARGAZER PLATE SOLVE - FAILED")
-            print(f"{'#'*60}")
             print(f"Error: {res['error']}")
-            print(f"{'#'*60}\n")
-            sys.stdout.flush()
         elif res.get('no_match'):
-            print(f"\n{'#'*60}")
-            print(f"# STARGAZER PLATE SOLVE - NO MATCH")
-            print(f"{'#'*60}")
             print(res.get('no_match_message', 'Could not identify any stars in this image.'))
-            print(f"{'#'*60}\n")
-            sys.stdout.flush()
-        else:
-            print(f"\n{'#'*60}")
-            print(f"# STARGAZER PLATE SOLVE - COMPLETED SUCCESSFULLY")
-            print(f"{'#'*60}")
-            print(f"ICRS (J2000): RA={res.get('calculated_icrs_coordinates_j2000', [None])[0]}°, Dec={res.get('calculated_icrs_coordinates_j2000', [None, None])[1]}°")
-            print(f"Location: Lat={res.get('calculated_location', [None])[0]}, Lon={res.get('calculated_location', [None, None])[1]}")
-            print(f"Location precision: {res.get('location_precision_km')} km")
-            print(f"{'#'*60}\n")
-            sys.stdout.flush()
-        
+
+        print()
+        sys.stdout.flush()
+
+        res['log_file'] = log_file_path if dual_writer else ""
+        sys.stdout = original_stdout
+        if dual_writer:
+            dual_writer.close()
         return json.dumps(res, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"\n{'#'*60}")
-        print(f"# STARGAZER PLATE SOLVE - EXCEPTION")
-        print(f"{'#'*60}")
-        print(f"Exception: {str(e)}")
-        print(f"{'#'*60}\n")
-        sys.stdout.flush()
-        return json.dumps({"error": str(e)})
+        sys.stdout = original_stdout
+        if dual_writer:
+            dual_writer.close()
+        print(f"Error: {str(e)}", file=original_stdout)
+        result = {"error": str(e)}
+        return json.dumps(result)
 
 
 # calibrate_correction: aggregate per-photo local corrections into global bins

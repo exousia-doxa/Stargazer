@@ -32,12 +32,18 @@
     <string name="preference_solver_hint_enabled_summary">Use the device GPS as a coarse RA/Dec hint to speed up solving.</string>
     <string name="preference_solver_hint_radius">Hint search radius (deg)</string>
     <string name="preference_solver_hint_radius_summary">Radius of the search cone around the hint position (default 15°).</string>
+    <string name="preference_calibration_location_enabled">Store device location in image</string>
+    <string name="preference_calibration_location_enabled_summary">If enabled, save device GPS location to image EXIF. If disabled, location data is excluded.</string>
 
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="run_python_solve">Run solve</string>
     <string name="copy_python_log">Copy log</string>
+    <string name="settings">Settings</string>
 
-    <string name="app_name">Open Camera</string> <!-- shouldn't be translated, unless deemed appropriate e.g. alternative alphabets -->
+    <string name="app_name">Stargazer</string>
+    <string name="app_subtitle">powered by OpenCamera and astrometry.net</string>
+    <string name="capture_photo">Capture Photo</string>
+    <string name="choose_from_gallery">Choose from Gallery</string>
     <string name="action_settings">Settings</string>
     <string name="action_popup">Popup settings</string>
     <string name="intro_ok">OK (This message won\'t show again)</string>

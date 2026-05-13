@@ -453,154 +453,42 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             orientationData.put(new JSONArray());
             root.put("orientation_data", orientationData);
 
-            final String jsonString = root.toString(4);
+            final String jsonString = root.toString();
+
+            // Write metadata to image EXIF in background thread (after ImageSaver finishes)
+            new Thread(() -> {
+                String imagePath = imageFile.getAbsolutePath();
+                int maxRetries = 10;
+                int retryCount = 0;
+                while (retryCount < maxRetries && !imageFile.exists()) {
+                    try {
+                        Thread.sleep(200);
+                        retryCount++;
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+
+                if (imageFile.exists()) {
+                    try {
+                        Log.d(TAG, "Writing EXIF to: " + imagePath + " (retry " + retryCount + ")");
+                        ExifInterface imageExif = new ExifInterface(imagePath);
+                        imageExif.setAttribute(ExifInterface.TAG_USER_COMMENT, jsonString);
+                        imageExif.saveAttributes();
+                        Log.d(TAG, "Embedded metadata in image EXIF, JSON length: " + jsonString.length());
+                    } catch (IOException e) {
+                        Log.e(TAG, "Failed to write metadata to image EXIF: " + e.getMessage());
+                    }
+                } else {
+                    Log.e(TAG, "Image file not found after waiting: " + imagePath);
+                }
+            }).start();
 
             runOnUiThread(() -> {
-                AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
-                alertDialog.setTitle(R.string.capture_details_title);
-
-                View dialogView = getLayoutInflater().inflate(R.layout.capture_details_dialog, null);
-                TextView jsonTextView = dialogView.findViewById(R.id.json_textview);
-                TextView consoleTextView = dialogView.findViewById(R.id.console_textview);
-
-                jsonTextView.setText(jsonString);
-                jsonTextView.setTextIsSelectable(true);
-                jsonTextView.setPadding(40, 20, 40, 20);
-                jsonTextView.setOnClickListener(v -> {
-                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    ClipData clip = ClipData.newPlainText("capture_details", jsonString);
-                    clipboard.setPrimaryClip(clip);
-                    Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show();
-                });
-
-                alertDialog.setView(dialogView);
-                alertDialog.setPositiveButton(android.R.string.ok, null);
-                alertDialog.setNegativeButton(R.string.run_python_solve, null);
-                alertDialog.setNeutralButton(R.string.copy_python_log, null);
-                AlertDialog dialog = alertDialog.show();
-                Log.d(TAG, "Dialog shown successfully");
-
-                Button runButton = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
-                Button copyButton = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
-                Log.d(TAG, "runButton: " + (runButton != null ? "found" : "NULL"));
-                Log.d(TAG, "copyButton: " + (copyButton != null ? "found" : "NULL"));
-                
-                if (runButton == null) {
-                    Log.e(TAG, "ERROR: Run Solve button is null - dialog setup failed");
-                    appendConsoleLine(consoleTextView, "ERROR: Failed to setup Run Solve button");
-                    return;
-                }
-                if (copyButton == null) {
-                    Log.e(TAG, "WARNING: Copy button is null - dialog setup may be incomplete");
-                }
-                
-                runButton.setOnClickListener(v -> {
-                    Log.d(TAG, "Run Solve button clicked!");
-                    MainActivity.this.python_solve_future = MainActivity.this.solve_executor.submit(() -> {
-                        try { // Outer try block starts here
-                            Log.d(TAG, "Solve executor task started");
-                            runOnUiThread(() -> runButton.setEnabled(false)); // Disable button on UI thread
-                            consoleTextView.setText("");
-                            appendConsoleLine(consoleTextView, "Preparing Stargazer solve...");
-
-                            // Log to confirm we are about to start the new thread
-                            Log.d(TAG, "Spawning new thread for Python solve.");
-
-                            new Thread(() -> {
-                                Log.d(TAG, "Solve thread started"); // This should now appear
-                                try {
-                                    JSONObject rootObj = new JSONObject(jsonString);
-                                    String originalPath = rootObj.getString("input_image");
-                                    File internalImage = new File(getStargazerWorkspaceDir(), "temp_solve.jpg");
-
-                                    appendConsoleLine(consoleTextView, "Copying image to internal storage...");
-                                    try (InputStream in = new java.io.FileInputStream(originalPath);
-                                         OutputStream out = new java.io.FileOutputStream(internalImage)) {
-                                        byte[] buf = new byte[16384];
-                                        int len;
-                                        while ((len = in.read(buf)) > 0) {
-                                            out.write(buf, 0, len);
-                                        }
-                                        rootObj.put("input_image", internalImage.getAbsolutePath());
-                                        appendConsoleLine(consoleTextView, "Copy successful: " + internalImage.getName());
-                                    } catch (IOException e) {
-                                        appendConsoleLine(consoleTextView, "Copy failed: " + e.getMessage());
-                                        runOnUiThread(() -> runButton.setEnabled(true));
-                                        return;
-                                    }
-
-                                    if (!Python.isStarted()) {
-                                        appendConsoleLine(consoleTextView, "Starting Python runtime");
-                                        Python.start(new AndroidPlatform(this));
-                                    }
-                                    Python py = Python.getInstance();
-                                    PyObject mainModule = py.getModule("main");
-                                    appendConsoleLine(consoleTextView, "Running main.solve_photo_from_json");
-                                    appendConsoleLine(consoleTextView, "Image: " + originalPath);
-                                    
-                                    File diagnosticTempDir = new File(getStargazerWorkspaceDir(), "temp");
-                                    if (diagnosticTempDir.exists() && diagnosticTempDir.isDirectory()) {
-                                        String[] files = diagnosticTempDir.list();
-                                        appendConsoleLine(consoleTextView, "Temp files before: " + (files != null ? files.length : 0));
-                                    }
-
-                                    PyObject result = mainModule.callAttr("solve_photo_from_json", rootObj.toString());
-                                    final String out = result == null ? "" : result.toString();
-                                    // Friendly UX for the three outcomes:
-                                    //   - error      -> raw JSON in the console
-                                    //   - no_match   -> inline message
-                                    //   - success    -> raw JSON (already rich)
-                                    String headline = null;
-                                    try {
-                                        org.json.JSONObject resJson = new org.json.JSONObject(out);
-                                        if (resJson.optBoolean("no_match", false)) {
-                                            headline = resJson.optString(
-                                                "no_match_message",
-                                                "Could not identify any stars in this image.");
-                                        } else if (!resJson.isNull("error")) {
-                                            headline = "Solver error: " + resJson.optString("error");
-                                        }
-                                    } catch (org.json.JSONException ignored) {
-                                        // Output wasn't JSON (shouldn't happen) -- fall through.
-                                    }
-                                    if (headline != null) {
-                                        final String headlineFinal = headline;
-                                        appendConsoleLine(consoleTextView, headlineFinal);
-                                        runOnUiThread(() -> Toast.makeText(
-                                            MainActivity.this, headlineFinal, Toast.LENGTH_LONG).show());
-                                    }
-                                    appendConsoleLine(consoleTextView, out);
-                                } catch (Exception e) {
-                                    Log.e(TAG, "Python error in solve thread", e);
-                                    appendConsoleLine(consoleTextView, "Python error in solve thread: " + e.getMessage() + "\n" + Log.getStackTraceString(e));
-                                } finally {
-                                    MainActivity.this.python_solve_future = null;
-                                    runOnUiThread(() -> runButton.setEnabled(true));
-                                }
-                            }).start();
-
-                        } catch (Exception e) { // Outer catch block for executor task errors
-                            Log.e(TAG, "Error in executor task before spawning solve thread", e);
-                            appendConsoleLine(consoleTextView, "Fatal error: " + e.getMessage() + "\n" + Log.getStackTraceString(e));
-                            MainActivity.this.python_solve_future = null;
-                            runOnUiThread(() -> runButton.setEnabled(true)); // Re-enable button on UI thread if outer task fails
-                        }
-                    });
-                });
-                
-                if (copyButton != null) {
-                    copyButton.setOnClickListener(v -> {
-                        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                        ClipData clip = ClipData.newPlainText("capture_details", consoleTextView.getText().toString());
-                        clipboard.setPrimaryClip(clip);
-                        Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show();
-                    });
-                }
-
-                appendConsoleLine(consoleTextView, "Ready.");
-                // Store a reference to the dialog so it can be dismissed if the activity is paused/destroyed
-                MainActivity.this.capture_details_dialog = dialog;
-                dialog.setOnDismissListener(d -> MainActivity.this.capture_details_dialog = null);
+                Intent result = new Intent();
+                result.putExtra("json", jsonString);
+                setResult(RESULT_OK, result);
+                finish();
             });
 
         } catch (JSONException e) {
