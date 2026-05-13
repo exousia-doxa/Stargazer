@@ -2,6 +2,10 @@
 
 Stargazer is an autonomous location detection system that leverages sensor metrics from portable devices to determine observer position using stellar positioning relative to zenith in night sky photographs. The system analyzes star patterns in images to identify sky coordinates (via plate solving), then combines these coordinates with device sensor data (GPS, orientation, timestamp) to compute geographic location. Because the approach relies primarily on internal sensor inputs and periodic corrections from time-servers and astronomical catalogs - rather than continuous satellite or radio signals - it provides positioning capability in environments where conventional GNSS (GPS) or radio-based positioning is unavailable, degraded, or denied. This makes Stargazer particularly valuable for navigation in areas with poor satellite coverage, during signal disruptions, or in security - sensitive scenarios where external positioning signals may be unreliable.
 
+
+<img width="700" height="1168" alt="image" src="https://github.com/user-attachments/assets/87e9259b-8f98-4710-94ef-0147ef9eb96d" />
+<img width="700" height="692" alt="image" src="https://github.com/user-attachments/assets/b4e04c90-4988-434a-88a2-f105d5744106" />
+
 ## Requirements
 
 - Android Studio 2021.1+
