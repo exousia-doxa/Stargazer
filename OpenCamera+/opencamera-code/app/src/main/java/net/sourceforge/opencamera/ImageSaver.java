@@ -200,6 +200,9 @@ public class ImageSaver extends Thread {
         final String custom_tag_artist;
         final String custom_tag_copyright;
         final int sample_factor; // sampling factor for thumbnail, higher means lower quality
+        final float focal_length; // camera focal length in mm, 0.0 if unknown (for EXIF metadata)
+        final float sensor_width; // sensor width in mm, 0.0 if unknown (for EXIF metadata)
+        final float sensor_height; // sensor height in mm, 0.0 if unknown (for EXIF metadata)
 
         Request(Type type,
                 ProcessType process_type,
@@ -230,7 +233,10 @@ public class ImageSaver extends Thread {
                 double pitch_angle, boolean store_ypr,
                 String custom_tag_artist,
                 String custom_tag_copyright,
-                int sample_factor) {
+                int sample_factor,
+                float focal_length,
+                float sensor_width,
+                float sensor_height) {
             this.type = type;
             this.process_type = process_type;
             this.force_suffix = force_suffix;
@@ -277,6 +283,9 @@ public class ImageSaver extends Thread {
             this.custom_tag_artist = custom_tag_artist;
             this.custom_tag_copyright = custom_tag_copyright;
             this.sample_factor = sample_factor;
+            this.focal_length = focal_length;
+            this.sensor_width = sensor_width;
+            this.sensor_height = sensor_height;
         }
 
         /** Returns a copy of this object. Note that it is not a deep copy - data such as JPEG and RAW
@@ -310,7 +319,10 @@ public class ImageSaver extends Thread {
                     this.pitch_angle, this.store_ypr,
                     this.custom_tag_artist,
                     this.custom_tag_copyright,
-                    this.sample_factor);
+                    this.sample_factor,
+                    this.focal_length,
+                    this.sensor_width,
+                    this.sensor_height);
         }
     }
 
@@ -534,7 +546,8 @@ public class ImageSaver extends Thread {
                     false, Request.RemoveDeviceExif.OFF, false, null, false, 0.0,
                     0.0, false,
                     null, null,
-                    1);
+                    1,
+                    0.0f, 0.0f, 0.0f);
             if( MyDebug.LOG )
                 Log.d(TAG, "add on_destroy request");
             addRequest(request, 1);
@@ -669,7 +682,10 @@ public class ImageSaver extends Thread {
                           double pitch_angle, boolean store_ypr,
                           String custom_tag_artist,
                           String custom_tag_copyright,
-                          int sample_factor) {
+                          int sample_factor,
+                          float focal_length,
+                          float sensor_width,
+                          float sensor_height) {
         if( MyDebug.LOG ) {
             Log.d(TAG, "saveImageJpeg");
             Log.d(TAG, "do_in_background? " + do_in_background);
@@ -703,8 +719,12 @@ public class ImageSaver extends Thread {
                 pitch_angle, store_ypr,
                 custom_tag_artist,
                 custom_tag_copyright,
-                sample_factor);
+                sample_factor,
+                focal_length,
+                sensor_width,
+                sensor_height);
     }
+
 
     /** Saves a RAW photo.
      *  If do_in_background is true, the photo will be saved in a background thread. If the queue is full, the function will wait
@@ -748,7 +768,10 @@ public class ImageSaver extends Thread {
                 false, Request.RemoveDeviceExif.OFF, false, null, false, 0.0,
                 0.0, false,
                 null, null,
-                1);
+                1,
+                0.0f,
+                0.0f,
+                0.0f);
     }
 
     private Request pending_image_average_request = null;
@@ -779,7 +802,10 @@ public class ImageSaver extends Thread {
                            double pitch_angle, boolean store_ypr,
                            String custom_tag_artist,
                            String custom_tag_copyright,
-                           int sample_factor) {
+                           int sample_factor,
+                           float focal_length,
+                           float sensor_width,
+                           float sensor_height) {
         if( MyDebug.LOG ) {
             Log.d(TAG, "startImageBatch");
             Log.d(TAG, "do_in_background? " + do_in_background);
@@ -811,7 +837,10 @@ public class ImageSaver extends Thread {
                 pitch_angle, store_ypr,
                 custom_tag_artist,
                 custom_tag_copyright,
-                sample_factor);
+                sample_factor,
+                focal_length,
+                sensor_width,
+                sensor_height);
     }
 
     void addImageBatch(byte [] image, float [] gyro_rotation_matrix) {
@@ -896,7 +925,10 @@ public class ImageSaver extends Thread {
                               double pitch_angle, boolean store_ypr,
                               String custom_tag_artist,
                               String custom_tag_copyright,
-                              int sample_factor) {
+                              int sample_factor,
+                              float focal_length,
+                              float sensor_width,
+                              float sensor_height) {
         if( MyDebug.LOG ) {
             Log.d(TAG, "saveImage");
             Log.d(TAG, "do_in_background? " + do_in_background);
@@ -932,8 +964,10 @@ public class ImageSaver extends Thread {
                 pitch_angle, store_ypr,
                 custom_tag_artist,
                 custom_tag_copyright,
-                sample_factor);
-
+                sample_factor,
+                focal_length,
+                sensor_width,
+                sensor_height);
         if( do_in_background ) {
             if( MyDebug.LOG )
                 Log.d(TAG, "add background request");
@@ -1043,7 +1077,8 @@ public class ImageSaver extends Thread {
                 false, Request.RemoveDeviceExif.OFF, false, null, false, 0.0,
                 0.0, false,
                 null, null,
-                1);
+                1,
+                0.0f, 0.0f, 0.0f);
         if( MyDebug.LOG )
             Log.d(TAG, "add dummy request");
         addRequest(dummy_request, 1); // cost must be 1, so we don't have infinite recursion!
@@ -4014,7 +4049,7 @@ public class ImageSaver extends Thread {
             transferDeviceExifGPS(exif, exif_new);
         }
 
-        modifyExif(exif_new, request.remove_device_exif, request.type == Request.Type.JPEG, request.using_camera2, request.using_camera_extensions, request.current_date, request.store_location, request.location, request.store_geo_direction, request.geo_direction, request.custom_tag_artist, request.custom_tag_copyright, request.level_angle, request.pitch_angle, request.store_ypr);
+        modifyExif(exif_new, request.remove_device_exif, request.type == Request.Type.JPEG, request.using_camera2, request.using_camera_extensions, request.current_date, request.store_location, request.location, request.store_geo_direction, request.geo_direction, request.custom_tag_artist, request.custom_tag_copyright, request.level_angle, request.pitch_angle, request.store_ypr, request.focal_length, request.sensor_width, request.sensor_height);
 
         removeExifTags(exif_new, request); // must be last, before saving attributes
         exif_new.saveAttributes();
@@ -4373,7 +4408,7 @@ public class ImageSaver extends Thread {
                 try {
                     ExifInterface exif = exif_holder.getExif();
                     if( exif != null ) {
-                        modifyExif(exif, request.remove_device_exif, request.type == Request.Type.JPEG, request.using_camera2, request.using_camera_extensions, request.current_date, request.store_location, request.location, request.store_geo_direction, request.geo_direction, request.custom_tag_artist, request.custom_tag_copyright, request.level_angle, request.pitch_angle, request.store_ypr);
+                        modifyExif(exif, request.remove_device_exif, request.type == Request.Type.JPEG, request.using_camera2, request.using_camera_extensions, request.current_date, request.store_location, request.location, request.store_geo_direction, request.geo_direction, request.custom_tag_artist, request.custom_tag_copyright, request.level_angle, request.pitch_angle, request.store_ypr, request.focal_length, request.sensor_width, request.sensor_height);
 
                         if( MyDebug.LOG )
                             Log.d(TAG, "*** time after modifyExif: " + (System.currentTimeMillis() - time_s));
@@ -4402,7 +4437,7 @@ public class ImageSaver extends Thread {
     /** Makes various modifications to the exif data, if necessary.
      *  Any fix-ups should respect the setting of RemoveDeviceExif!
      */
-    private void modifyExif(ExifInterface exif, Request.RemoveDeviceExif remove_device_exif, boolean is_jpeg, boolean using_camera2, boolean using_camera_extensions, Date current_date, boolean store_location, Location location, boolean store_geo_direction, double geo_direction, String custom_tag_artist, String custom_tag_copyright, double level_angle, double pitch_angle, boolean store_ypr) {
+    private void modifyExif(ExifInterface exif, Request.RemoveDeviceExif remove_device_exif, boolean is_jpeg, boolean using_camera2, boolean using_camera_extensions, Date current_date, boolean store_location, Location location, boolean store_geo_direction, double geo_direction, String custom_tag_artist, String custom_tag_copyright, double level_angle, double pitch_angle, boolean store_ypr, float focal_length, float sensor_width, float sensor_height) {
         if( MyDebug.LOG )
             Log.d(TAG, "modifyExif");
         setGPSDirectionExif(exif, store_geo_direction, geo_direction);
@@ -4418,6 +4453,8 @@ public class ImageSaver extends Thread {
             if( MyDebug.LOG )
                 Log.d(TAG, "UserComment: " + exif.getAttribute(ExifInterface.TAG_USER_COMMENT));
         }
+        // Add stargazer plate-solve metadata (camera intrinsics and app info)
+        addStargazerMetadataExif(exif, focal_length, sensor_width, sensor_height);
         setCustomExif(exif, custom_tag_artist, custom_tag_copyright);
 
         boolean force_location = false; // whether we need to add location data
@@ -4509,6 +4546,43 @@ public class ImageSaver extends Thread {
                 Log.d(TAG, "apply TAG_COPYRIGHT: " + custom_tag_copyright);
             // fine to ignore request.remove_device_exif, as this is a separate user option
             exif.setAttribute(ExifInterface.TAG_COPYRIGHT, custom_tag_copyright);
+        }
+    }
+
+    /** Adds stargazer plate-solve metadata (camera intrinsics and app information) to EXIF tags.
+     *  This data enables retroactive plate-solving of photos.
+     */
+    private void addStargazerMetadataExif(ExifInterface exif, float focal_length, float sensor_width, float sensor_height) {
+        if( MyDebug.LOG )
+            Log.d(TAG, "addStargazerMetadataExif");
+        
+        // Only add metadata if we have valid camera intrinsics
+        if( focal_length > 0.0f && sensor_width > 0.0f && sensor_height > 0.0f ) {
+            try {
+                // Build JSON metadata object
+                StringBuilder metadata = new StringBuilder();
+                metadata.append("{");
+                metadata.append("\"app\":\"stargazer\",");
+                metadata.append("\"version\":\"1.0\",");
+                metadata.append("\"focal_length_mm\":").append(focal_length).append(",");
+                metadata.append("\"sensor_width_mm\":").append(sensor_width).append(",");
+                metadata.append("\"sensor_height_mm\":").append(sensor_height);
+                metadata.append("}");
+                
+                String metadataJson = metadata.toString();
+                
+                // Store in IMAGE_DESCRIPTION tag (safe, well-supported field)
+                // Using ASCII encoding to avoid EXIF encoding issues
+                String encoding = "ASCII\0\0\0";
+                exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, encoding + metadataJson);
+                
+                if( MyDebug.LOG )
+                    Log.d(TAG, "Added stargazer metadata to EXIF: " + metadataJson);
+            }
+            catch( Exception e ) {
+                if( MyDebug.LOG )
+                    Log.e(TAG, "Error adding stargazer metadata to EXIF: " + e.getMessage());
+            }
         }
     }
 

@@ -20,6 +20,13 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
+import java.io.OutputStream;
+import java.io.FileWriter;
+import java.nio.charset.StandardCharsets;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -101,6 +108,9 @@ import android.view.GestureDetector.SimpleOnGestureListener;
 import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
+import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
 import android.view.Menu;
 import android.view.MotionEvent;
 import android.view.OrientationEventListener;
@@ -113,6 +123,7 @@ import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.EditText;
+import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
@@ -223,6 +234,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     private final ToastBoxer store_location_toast = new ToastBoxer();
     private boolean block_startup_toast = false; // used when returning from Settings/Popup - if we're displaying a toast anyway, don't want to display the info toast too
     private String push_info_toast_text; // can be used to "push" extra text to the info text for showPhotoVideoToast()
+    private Future<?> python_solve_future;
+    private ExecutorService solve_executor;
     private boolean push_switched_camera = false; // whether to display animation for switching front/back cameras
 
     // application shortcuts:
@@ -259,6 +272,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     private float mWaterDensity = 1.0f;
 
     // whether to lock to landscape orientation, or allow switching between portrait and landscape orientations
+    private AlertDialog capture_details_dialog;
     //public static final boolean lock_to_landscape = true;
     public static final boolean lock_to_landscape = false;
 
@@ -291,10 +305,67 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             return Arrays.copyOf(gravityValues, gravityValues.length);
         }
     }
-    // Додай цей імпорт на початку файлу
-// ... інші імпорти
 
-// ... всередині класу MainActivity
+    private static final String STARGAZER_ASSET_INDEX_DIR = "data";
+    private static final String STARGAZER_BACKEND_CONFIG = "stargazer-backend.cfg";
+
+    private File getStargazerWorkspaceDir() {
+        File dir = new File(getFilesDir(), "stargazer");
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        return dir;
+    }
+
+    private File getStargazerIndexDir() {
+        File dir = new File(getStargazerWorkspaceDir(), "index");
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        return dir;
+    }
+
+    private File getStargazerBackendConfigFile() {
+        return new File(getStargazerWorkspaceDir(), STARGAZER_BACKEND_CONFIG);
+    }
+
+    private void appendConsoleLine(TextView consoleTextView, String message) {
+        runOnUiThread(() -> consoleTextView.append(message + "\n"));
+    }
+
+    private void ensureStargazerBackendConfig(File indexDir) throws IOException {
+        File configFile = getStargazerBackendConfigFile();
+        try (FileWriter writer = new FileWriter(configFile, false)) {
+            writer.write("add_path " + indexDir.getAbsolutePath() + "\n");
+            writer.write("autoindex\n");
+        }
+    }
+
+    private void ensureStargazerIndexesCopied() throws IOException {
+        File indexDir = getStargazerIndexDir();
+        String[] indexes = new String[] {
+                "index-4115.fits",
+                "index-4116.fits",
+                "index-4117.fits",
+                "index-4118.fits",
+                "index-4119.fits"
+        };
+        for (String indexName : indexes) {
+            File target = new File(indexDir, indexName);
+            if (target.exists() && target.length() > 0) {
+                continue;
+            }
+            try (InputStream inputStream = getAssets().open(STARGAZER_ASSET_INDEX_DIR + "/" + indexName);
+                 OutputStream outputStream = new java.io.FileOutputStream(target)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = inputStream.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, read);
+                }
+            }
+        }
+        ensureStargazerBackendConfig(indexDir);
+    }
 
     public void showCaptureDetailsPopup(String imageName, int photoWidth, int photoHeight, String time, double latitude, double longitude, float[] gravityData) {
         if (MyDebug.LOG)
@@ -330,20 +401,22 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
 
         try {
             JSONObject root = new JSONObject();
-            root.put("input_image", imageName + ".jpg");
-            root.put("output_directory", "temp");
+            File imageFile = new File(getStorageUtils().getImageFolder(), imageName + ".jpg");
+            root.put("input_image", imageFile.getAbsolutePath());
+            File workspaceDir = getStargazerWorkspaceDir();
+            File tempDir = new File(workspaceDir, "temp");
+            if (!tempDir.exists()) {
+                tempDir.mkdirs();
+            }
+            root.put("output_directory", tempDir.getAbsolutePath());
+            root.put("app_config", new File(getFilesDir(), "stargazer-config.json").getAbsolutePath());
+            root.put("backend_config", getStargazerBackendConfigFile().getAbsolutePath());
+            root.put("index_directory", getStargazerIndexDir().getAbsolutePath());
 
-            JSONArray plateSolveParams = new JSONArray();
-            plateSolveParams.put("-v");
-            plateSolveParams.put("--overwrite");
-            plateSolveParams.put("--downsample");
-            plateSolveParams.put("1");
-            plateSolveParams.put("-r");
-            plateSolveParams.put("-J");
-            plateSolveParams.put("-l");
-            plateSolveParams.put("6000");
-            plateSolveParams.put("--objs");
-            plateSolveParams.put("100");
+            // Build the solver argv entirely from user preferences so the
+            // Python side just forwards them. Defaults mirror the XML.
+            JSONArray plateSolveParams = buildSolverParamsFromPrefs(
+                sharedPreferences, latitude, longitude, time);
             root.put("plate_solve_parameters", plateSolveParams);
 
             JSONArray cameraData = new JSONArray();
@@ -386,22 +459,148 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                 AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
                 alertDialog.setTitle(R.string.capture_details_title);
 
-                ScrollView scrollView = new ScrollView(this);
-                TextView textView = new TextView(this);
-                textView.setText(jsonString);
-                textView.setTextIsSelectable(true);
-                textView.setPadding(40, 20, 40, 20);
-                textView.setOnClickListener(v -> {
+                View dialogView = getLayoutInflater().inflate(R.layout.capture_details_dialog, null);
+                TextView jsonTextView = dialogView.findViewById(R.id.json_textview);
+                TextView consoleTextView = dialogView.findViewById(R.id.console_textview);
+
+                jsonTextView.setText(jsonString);
+                jsonTextView.setTextIsSelectable(true);
+                jsonTextView.setPadding(40, 20, 40, 20);
+                jsonTextView.setOnClickListener(v -> {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     ClipData clip = ClipData.newPlainText("capture_details", jsonString);
                     clipboard.setPrimaryClip(clip);
                     Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show();
                 });
-                scrollView.addView(textView);
 
-                alertDialog.setView(scrollView);
+                alertDialog.setView(dialogView);
                 alertDialog.setPositiveButton(android.R.string.ok, null);
-                alertDialog.show();
+                alertDialog.setNegativeButton(R.string.run_python_solve, null);
+                alertDialog.setNeutralButton(R.string.copy_python_log, null);
+                AlertDialog dialog = alertDialog.show();
+                Log.d(TAG, "Dialog shown successfully");
+
+                Button runButton = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+                Button copyButton = dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
+                Log.d(TAG, "runButton: " + (runButton != null ? "found" : "NULL"));
+                Log.d(TAG, "copyButton: " + (copyButton != null ? "found" : "NULL"));
+                
+                if (runButton == null) {
+                    Log.e(TAG, "ERROR: Run Solve button is null - dialog setup failed");
+                    appendConsoleLine(consoleTextView, "ERROR: Failed to setup Run Solve button");
+                    return;
+                }
+                if (copyButton == null) {
+                    Log.e(TAG, "WARNING: Copy button is null - dialog setup may be incomplete");
+                }
+                
+                runButton.setOnClickListener(v -> {
+                    Log.d(TAG, "Run Solve button clicked!");
+                    MainActivity.this.python_solve_future = MainActivity.this.solve_executor.submit(() -> {
+                        try { // Outer try block starts here
+                            Log.d(TAG, "Solve executor task started");
+                            runOnUiThread(() -> runButton.setEnabled(false)); // Disable button on UI thread
+                            consoleTextView.setText("");
+                            appendConsoleLine(consoleTextView, "Preparing Stargazer solve...");
+
+                            // Log to confirm we are about to start the new thread
+                            Log.d(TAG, "Spawning new thread for Python solve.");
+
+                            new Thread(() -> {
+                                Log.d(TAG, "Solve thread started"); // This should now appear
+                                try {
+                                    JSONObject rootObj = new JSONObject(jsonString);
+                                    String originalPath = rootObj.getString("input_image");
+                                    File internalImage = new File(getStargazerWorkspaceDir(), "temp_solve.jpg");
+
+                                    appendConsoleLine(consoleTextView, "Copying image to internal storage...");
+                                    try (InputStream in = new java.io.FileInputStream(originalPath);
+                                         OutputStream out = new java.io.FileOutputStream(internalImage)) {
+                                        byte[] buf = new byte[16384];
+                                        int len;
+                                        while ((len = in.read(buf)) > 0) {
+                                            out.write(buf, 0, len);
+                                        }
+                                        rootObj.put("input_image", internalImage.getAbsolutePath());
+                                        appendConsoleLine(consoleTextView, "Copy successful: " + internalImage.getName());
+                                    } catch (IOException e) {
+                                        appendConsoleLine(consoleTextView, "Copy failed: " + e.getMessage());
+                                        runOnUiThread(() -> runButton.setEnabled(true));
+                                        return;
+                                    }
+
+                                    if (!Python.isStarted()) {
+                                        appendConsoleLine(consoleTextView, "Starting Python runtime");
+                                        Python.start(new AndroidPlatform(this));
+                                    }
+                                    Python py = Python.getInstance();
+                                    PyObject mainModule = py.getModule("main");
+                                    appendConsoleLine(consoleTextView, "Running main.solve_photo_from_json");
+                                    appendConsoleLine(consoleTextView, "Image: " + originalPath);
+                                    
+                                    File diagnosticTempDir = new File(getStargazerWorkspaceDir(), "temp");
+                                    if (diagnosticTempDir.exists() && diagnosticTempDir.isDirectory()) {
+                                        String[] files = diagnosticTempDir.list();
+                                        appendConsoleLine(consoleTextView, "Temp files before: " + (files != null ? files.length : 0));
+                                    }
+
+                                    PyObject result = mainModule.callAttr("solve_photo_from_json", rootObj.toString());
+                                    final String out = result == null ? "" : result.toString();
+                                    // Friendly UX for the three outcomes:
+                                    //   - error      -> raw JSON in the console
+                                    //   - no_match   -> inline message
+                                    //   - success    -> raw JSON (already rich)
+                                    String headline = null;
+                                    try {
+                                        org.json.JSONObject resJson = new org.json.JSONObject(out);
+                                        if (resJson.optBoolean("no_match", false)) {
+                                            headline = resJson.optString(
+                                                "no_match_message",
+                                                "Could not identify any stars in this image.");
+                                        } else if (!resJson.isNull("error")) {
+                                            headline = "Solver error: " + resJson.optString("error");
+                                        }
+                                    } catch (org.json.JSONException ignored) {
+                                        // Output wasn't JSON (shouldn't happen) -- fall through.
+                                    }
+                                    if (headline != null) {
+                                        final String headlineFinal = headline;
+                                        appendConsoleLine(consoleTextView, headlineFinal);
+                                        runOnUiThread(() -> Toast.makeText(
+                                            MainActivity.this, headlineFinal, Toast.LENGTH_LONG).show());
+                                    }
+                                    appendConsoleLine(consoleTextView, out);
+                                } catch (Exception e) {
+                                    Log.e(TAG, "Python error in solve thread", e);
+                                    appendConsoleLine(consoleTextView, "Python error in solve thread: " + e.getMessage() + "\n" + Log.getStackTraceString(e));
+                                } finally {
+                                    MainActivity.this.python_solve_future = null;
+                                    runOnUiThread(() -> runButton.setEnabled(true));
+                                }
+                            }).start();
+
+                        } catch (Exception e) { // Outer catch block for executor task errors
+                            Log.e(TAG, "Error in executor task before spawning solve thread", e);
+                            appendConsoleLine(consoleTextView, "Fatal error: " + e.getMessage() + "\n" + Log.getStackTraceString(e));
+                            MainActivity.this.python_solve_future = null;
+                            runOnUiThread(() -> runButton.setEnabled(true)); // Re-enable button on UI thread if outer task fails
+                        }
+                    });
+                });
+                
+                if (copyButton != null) {
+                    copyButton.setOnClickListener(v -> {
+                        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                        ClipData clip = ClipData.newPlainText("capture_details", consoleTextView.getText().toString());
+                        clipboard.setPrimaryClip(clip);
+                        Toast.makeText(this, getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show();
+                    });
+                }
+
+                appendConsoleLine(consoleTextView, "Ready.");
+                // Store a reference to the dialog so it can be dismissed if the activity is paused/destroyed
+                MainActivity.this.capture_details_dialog = dialog;
+                dialog.setOnDismissListener(d -> MainActivity.this.capture_details_dialog = null);
             });
 
         } catch (JSONException e) {
@@ -410,6 +609,95 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                 Toast.makeText(this, "Error creating JSON data", Toast.LENGTH_LONG).show();
             });
         }
+    }
+
+    /**
+     * Build the astrometry.net solve-field argv from user preferences.
+     * Always includes the always-on flags (-r, -J) and any optional flags
+     * the user has populated. The Python side passes this list through
+     * verbatim, so this method is the single source of truth for solver
+     * tuning at runtime.
+     *
+     * The positional hint (-3/-4/-5) is emitted only when the user enabled
+     * it AND a valid lat/lon is available at the call site.
+     */
+    private JSONArray buildSolverParamsFromPrefs(SharedPreferences prefs,
+                                                 double latitude,
+                                                 double longitude,
+                                                 String isoTime) {
+        JSONArray params = new JSONArray();
+
+        // Always-on: write rdls (-r) and tweak (-J) -- not exposed as prefs.
+        params.put("-r");
+        params.put("-J");
+
+        // Field width range + units.
+        String unitsValue = prefs.getString(PreferenceKeys.SolverFieldUnitsKey, "arcminwidth");
+        String minStr = prefs.getString(PreferenceKeys.SolverFieldMinKey, "30");
+        String maxStr = prefs.getString(PreferenceKeys.SolverFieldMaxKey, "180");
+        if (minStr != null && !minStr.trim().isEmpty()) {
+            params.put("-L"); params.put(minStr.trim());
+        }
+        if (maxStr != null && !maxStr.trim().isEmpty()) {
+            params.put("-H"); params.put(maxStr.trim());
+        }
+        if (unitsValue != null && !unitsValue.isEmpty()) {
+            params.put("-u"); params.put(unitsValue);
+        }
+
+        // CPU time limit (engine-side rlimit; wall-clock is enforced in Python).
+        String cpuStr = prefs.getString(PreferenceKeys.SolverCpuLimitKey, "60");
+        if (cpuStr != null && !cpuStr.trim().isEmpty()) {
+            params.put("-l"); params.put(cpuStr.trim());
+        }
+
+        // Python-side wall-clock kill timer. Recognized only by plate_solve.py.
+        String wallStr = prefs.getString(PreferenceKeys.SolverWallTimeoutKey, "120");
+        if (wallStr != null && !wallStr.trim().isEmpty()) {
+            params.put("--stargazer-wall-timeout"); params.put(wallStr.trim());
+        }
+
+        // Max sources passed to the engine.
+        String objsStr = prefs.getString(PreferenceKeys.SolverMaxObjectsKey, "100");
+        if (objsStr != null && !objsStr.trim().isEmpty()) {
+            params.put("--objs"); params.put(objsStr.trim());
+        }
+
+        // Source-extraction downsample.
+        String downStr = prefs.getString(PreferenceKeys.SolverDownsampleKey, "2");
+        if (downStr != null && !downStr.trim().isEmpty() && !"1".equals(downStr.trim())) {
+            params.put("-z"); params.put(downStr.trim());
+        }
+
+        // Parity. Default "both" emits nothing; pos/neg map to solve-field's
+        // -p flag with values 0/1 (positive/negative).
+        String parityStr = prefs.getString(PreferenceKeys.SolverParityKey, "both");
+        if ("pos".equals(parityStr)) {
+            params.put("--parity"); params.put("pos");
+        } else if ("neg".equals(parityStr)) {
+            params.put("--parity"); params.put("neg");
+        }
+
+        // Positional hint: only when enabled, the user has a GPS fix, and a
+        // sane time string is present (the engine itself does not need the
+        // time, but a 0,0 GPS hint is almost always wrong).
+        boolean hintEnabled = prefs.getBoolean(PreferenceKeys.SolverHintEnabledKey, false);
+        boolean hasFix = (latitude != 0.0 || longitude != 0.0);
+        if (hintEnabled && hasFix) {
+            // GPS lat/lon are NOT RA/Dec; they only become useful as a sky
+            // hint if combined with time. We pass them through so the Python
+            // side can convert (zenith RA/Dec at lat/lon/time) -- the
+            // conversion lives there because astropy is already imported.
+            // Mark with sentinel flags the Python side recognizes.
+            String radiusStr = prefs.getString(PreferenceKeys.SolverHintRadiusKey, "15");
+            params.put("--stargazer-hint-from-gps");
+            params.put(String.valueOf(latitude));
+            params.put(String.valueOf(longitude));
+            params.put(isoTime == null ? "" : isoTime);
+            params.put(radiusStr == null ? "15" : radiusStr.trim());
+        }
+
+        return params;
     }
 
     private final SensorEventListener gravityListener = new SensorEventListener() {
@@ -438,6 +726,15 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         if( MyDebug.LOG )
             Log.d(TAG, "activity_count: " + activity_count);
         //EdgeToEdge.enable(this, SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT), SystemBarStyle.dark(Color.TRANSPARENT)); // test edge-to-edge on pre-Android 15
+
+        // Initialize Python for Chaquopy
+        if (!Python.isStarted()) {
+            Python.start(new AndroidPlatform(this));
+        }
+        // Initialize executor for async tasks
+        if (solve_executor == null || solve_executor.isShutdown()) {
+            solve_executor = Executors.newSingleThreadExecutor();
+        }
         super.onCreate(savedInstanceState);
 
         setContentView(R.layout.activity_main);
@@ -1443,6 +1740,11 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         if( want_no_limits && navigation_gap != 0 ) {
             if( MyDebug.LOG )
                 Log.d(TAG, "clear FLAG_LAYOUT_NO_LIMITS");
+
+        if( python_solve_future != null ) {
+            python_solve_future.cancel(true);
+        }
+
             // it's unclear why this matters - but there is a bug when exiting split-screen mode, if the split-screen mode had set want_no_limits:
             // even though the application is created when leaving split-screen mode, we still end up with the window flags for showing
             // under the navigation bar!
@@ -4602,6 +4904,11 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         if( want_no_limits && navigation_gap != 0 ) {
             if( MyDebug.LOG )
                 Log.d(TAG, "clear FLAG_LAYOUT_NO_LIMITS");
+
+        if( python_solve_future != null ) {
+            python_solve_future.cancel(true);
+        }
+
             showUnderNavigation(false);
         }
         if( set_lock_protect ) {

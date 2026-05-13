@@ -6,6 +6,21 @@ public class PreferenceKeys {
     public static final String MatrixWidthPreferenceKey = "preference_matrix_width";
     public static final String MatrixHeightPreferenceKey = "preference_matrix_height";
     public static final String FocalLengthPreferenceKey = "preference_focal_length";
+
+    // Stargazer plate-solver tuning preferences. All are strings so they can
+    // be empty ("use default"); MainActivity parses them when building the
+    // argv for solve-field.
+    public static final String SolverFieldUnitsKey       = "preference_solver_field_units";        // ListPreference
+    public static final String SolverFieldMinKey         = "preference_solver_field_min";          // EditTextPreference (numberDecimal)
+    public static final String SolverFieldMaxKey         = "preference_solver_field_max";          // EditTextPreference (numberDecimal)
+    public static final String SolverCpuLimitKey         = "preference_solver_cpu_limit";          // EditTextPreference (number)
+    public static final String SolverWallTimeoutKey      = "preference_solver_wall_timeout";       // EditTextPreference (number)
+    public static final String SolverMaxObjectsKey       = "preference_solver_max_objects";        // EditTextPreference (number)
+    public static final String SolverDownsampleKey       = "preference_solver_downsample";         // ListPreference (1/2/4)
+    public static final String SolverParityKey           = "preference_solver_parity";             // ListPreference (default/pos/neg)
+    public static final String SolverHintEnabledKey      = "preference_solver_hint_enabled";       // SwitchPreference
+    public static final String SolverHintRadiusKey       = "preference_solver_hint_radius";        // EditTextPreference (numberDecimal, degrees)
+
     // must be static, to safely call from other Activities
 
     /** If this preference is set, no longer show the intro dialog.

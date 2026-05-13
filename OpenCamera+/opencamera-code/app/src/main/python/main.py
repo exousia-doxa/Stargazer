@@ -11,6 +11,7 @@ import tools
 import subprocess
 from dataclasses import dataclass, asdict
 import argparse
+import piexif
 
 
 # PhotoMeta: a clear, explicit representation of all photo metadata fields.
@@ -95,28 +96,16 @@ def set_meta_scheme(image_path,
             meta['correction_degree'] = float(correction_degree)
         if photo_icrs is not None:
             meta['photo_icrs'] = [float(photo_icrs[0]), float(photo_icrs[1])]
-        tmp = Path('/tmp') / f'meta_{img_path.name}.json'
+
         try:
-            with tmp.open('w', encoding='utf-8') as fh:
-                json.dump(meta, fh, ensure_ascii=False, indent=2)
+            exif_dict = piexif.load(str(img_path))
+            user_comment = json.dumps(meta, ensure_ascii=False, indent=2)
+            exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment.encode('utf-8')
+            exif_bytes = piexif.dump(exif_dict)
+            piexif.insert(exif_bytes, str(img_path))
         except Exception as e:
-            print(f"Error: cannot write temporary metadata file: {e}")
+            print(f"Error: failed to write EXIF data: {e}")
             return False
-        try:
-            proc = subprocess.run(['exiftool', '-overwrite_original', f'-UserComment<={tmp}', str(img_path)], capture_output=True, text=True)
-            if proc.returncode != 0:
-                print(f"Error: exiftool failed: {proc.stderr.strip() or proc.stdout.strip()}")
-                return False
-        except FileNotFoundError:
-            print('Error: exiftool not found on PATH')
-            return False
-        except Exception as e:
-            print(f"Error: failed to run exiftool: {e}")
-            return False
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
         return True
     except Exception as e:
         print(f"Error in set_meta_scheme: {e}")
@@ -133,20 +122,13 @@ def get_meta_scheme(image_path):
             print(f"Error: image not found: {image_path}")
             return None
         try:
-            img = Image.open(img_path)
+            exif_dict = piexif.load(str(img_path))
+            user_comment = exif_dict.get('Exif', {}).get(piexif.ExifIFD.UserComment)
         except Exception as e:
-            print(f"Error: cannot open image: {e}")
+            print(f"Error: cannot read EXIF data: {e}")
             return None
-        exif = {}
-        try:
-            exif = img._getexif() or {}
-        except Exception:
-            exif = {}
-        user_comment = None
-        if isinstance(exif, dict):
-            user_comment = exif.get(37510) or exif.get(270)
         if user_comment is None:
-            info = getattr(img, 'info', {})
+            info = getattr(img_path, 'info', {})
             user_comment = info.get('comment') or info.get('description') or info.get('xml') or info.get('xmp')
         if user_comment is None:
             return None
@@ -235,9 +217,23 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         'location_precision_km': None,
         'saved_combined_global_correction': None,
         'no_local_found_message': None,
+        'no_match': False,
+        'no_match_message': None,
         'error': None,
     }
     try:
+        # Validate required parameters
+        if meta.photo_full_resolution is None:
+            raise ValueError("photo_full_resolution is required")
+        if meta.phone_sensor_size is None:
+            raise ValueError("phone_sensor_size is required")
+        if meta.phone_focal_length is None:
+            raise ValueError("phone_focal_length is required")
+        if meta.photo_utc_timestamp is None:
+            raise ValueError("photo_utc_timestamp is required")
+        if meta.photo_location is None:
+            raise ValueError("photo_location is required")
+        
         # Explicitly name variables for clarity
         linked_image = meta.linked_image
         plate_solve_arguments = list(meta.plate_solve_arguments) if meta.plate_solve_arguments is not None else []
@@ -257,13 +253,62 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         orientation_vector = np.array([gravity_x, gravity_y, gravity_z], dtype=np.float64)
 
         # ensure WCS present or run plate solver
-        wcs_fits = "./" + linked_image + ".d/wcs.fits"
+        output_directory = arguments_c.get('output_directory')
+        if output_directory is None:
+            output_directory = str(Path(linked_image).with_suffix('.jpg.d'))
+        wcs_fits = str(Path(output_directory) / "wcs.fits")
+
+        print(f"\n{'='*60}")
+        print(f"PLATE SOLVE PHASE")
+        print(f"{'='*60}")
+        print(f"Checking for WCS at: {wcs_fits}")
+        sys.stdout.flush()
+        
         if not Path(wcs_fits).exists():
-            plate_solve.plate_solve(str(Path(linked_image)), str(Path('temp')), plate_solve_arguments)
+            print(f"Creating output directory: {output_directory}")
+            Path(output_directory).mkdir(parents=True, exist_ok=True)
+            print("WCS file not found - running plate solver...")
+            print()
+            sys.stdout.flush()
+            solved = plate_solve.plate_solve(
+                str(Path(linked_image)), output_directory,
+                plate_solve_arguments, arguments_c,
+            )
+            print()
+            sys.stdout.flush()
+            # `plate_solve` returns False when the solver ran cleanly but
+            # could not match the field (e.g. not enough stars / image is
+            # not of the sky). This is an expected outcome, not an error.
+            if solved is False:
+                results['no_match'] = True
+                results['no_match_message'] = (
+                    "Could not identify any stars in this image."
+                )
+                print("INFO: plate solver finished without a match; "
+                      "returning no-match result without computing coordinates.")
+                sys.stdout.flush()
+                return _sanitize(results)
+        else:
+            print("WCS file already exists - skipping solve")
+            sys.stdout.flush()
+
+        if not Path(wcs_fits).exists():
+            # Defensive: solver said it succeeded but no WCS on disk.
+            # Treat as a real error (rare; usually indicates a bug).
+            raise RuntimeError(f"WCS file still missing after solve attempt: {wcs_fits}")
+        
+        print(f"✓ WCS file verified: {wcs_fits}")
+        print(f"{'='*60}\n")
+        sys.stdout.flush()
 
         # compute observed zenith pixel coordinates
+        print(f"COORDINATE COMPUTATION PHASE")
+        print(f"{'='*60}")
+        print("Computing zenith pixel coordinates...")
+        sys.stdout.flush()
         obs_zenith_xy = tools.find_xy_via_orientation(camera_data[0], camera_data[1], camera_data[2], photo_data[0], orientation_vector / np.linalg.norm(orientation_vector))
         obs_angle_deg = tools.pixel_angle_deg_from_center(obs_zenith_xy, camera_data)
+        print(f"Observed zenith angle: {obs_angle_deg}°")
 
         # apply global correction if found in config and requested
         cm_list = arguments_c.get('correction_matrix', [])
@@ -283,7 +328,9 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             obs_angle_deg = tools.pixel_angle_deg_from_center(obs_zenith_xy, camera_data)
 
         # compute ICRS coordinates via WCS
+        print(f"DEBUG: Computing ICRS via WCS: {wcs_fits}")
         obs_zenith_icrs = tools.find_icrs_via_xy(wcs_fits, obs_zenith_xy)
+        print(f"DEBUG: Obs zenith ICRS: {obs_zenith_icrs}")
         obs_epoch = Time(Time(observation_timestamp, scale='utc').to_value('decimalyear'), format='jyear')
         source = SkyCoord(ra=obs_zenith_icrs[0] * u.deg, dec=obs_zenith_icrs[1] * u.deg, frame=FK5(equinox=obs_epoch))
         result = source.transform_to(FK5(equinox=Time(2000.0, format='jyear')))
@@ -317,6 +364,7 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
                 loc_best_guess = None
 
         obs_location = tools.find_location_via_icrs(obs_zenith_icrs_j2000[0], obs_zenith_icrs_j2000[1], observation_timestamp, loc_best_guess)
+        print(f"DEBUG: Computed location: {obs_location}")
 
         results.update({'calculated_photo_coordinates': obs_zenith_xy,
                         'calculated_icrs_coordinates_epoch': obs_zenith_icrs,
@@ -325,6 +373,7 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
 
         # perform local calibration if requested and actual GPS is available
         if is_calibrating and actual_latitude is not None:
+            print(f"DEBUG: Calibrating with actual location: {actual_latitude}, {actual_longitude}")
             apr_zenith_icrs = tools.find_icrs_via_location(observation_timestamp, actual_latitude, actual_longitude)
             apr_zenith_xy = tools.find_xy_via_icrs(wcs_fits, apr_zenith_icrs)
             results['approx_photo_coordinates'] = apr_zenith_xy
@@ -360,23 +409,135 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             location_precision_km = round(((results['actual_location'][0] - results['calculated_location'][0])**2 + (results['actual_location'][1] - results['calculated_location'][1])**2) ** 0.5 * 111, 2)
             results['location_precision_km'] = location_precision_km
     except Exception as e:
-        results['error'] = str(e)
-
-    def _sanitize(obj):
-        if isinstance(obj, dict):
-            return {k: _sanitize(v) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [_sanitize(v) for v in obj]
-        if hasattr(obj, 'tolist') and not isinstance(obj, str):
-            try:
-                return _sanitize(obj.tolist())
-            except Exception:
-                pass
-        if isinstance(obj, (np.floating, np.integer)):
-            return obj.item()
-        return obj
+        import traceback
+        error_msg = str(e)
+        tb_msg = traceback.format_exc()
+        print(f"ERROR in solve_photo: {error_msg}")
+        print(f"Traceback: {tb_msg}")
+        results['error'] = error_msg
 
     return _sanitize(results)
+
+
+def _sanitize(obj):
+    """Recursively convert numpy types and arrays into plain Python so the
+    result dict is JSON-serializable by `solve_photo_from_json`."""
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    if hasattr(obj, 'tolist') and not isinstance(obj, str):
+        try:
+            return _sanitize(obj.tolist())
+        except Exception:
+            pass
+    if isinstance(obj, (np.floating, np.integer)):
+        return obj.item()
+    return obj
+
+
+def solve_photo_from_json(json_string):
+    try:
+        data = json.loads(json_string)
+        image_name = data.get("input_image")
+        
+        print(f"\n{'#'*60}")
+        print(f"# STARGAZER PLATE SOLVE - STARTED")
+        print(f"{'#'*60}")
+        print(f"Image: {image_name}")
+        print(f"Timestamp: {data.get('photo_data', [None, None])[1]}")
+        print(f"Location: {data.get('photo_data', [None, None, None])[2]}")
+        print(f"Plate solver parameters: {data.get('plate_solve_parameters', [])}")
+        print(f"{'#'*60}\n")
+        sys.stdout.flush()
+        
+        if not image_name:
+            return json.dumps({"error": "'input_image' not found in JSON data"})
+
+        # Build a minimal PhotoMeta from the provided JSON
+        camera_data = data.get("camera_data", [])
+        photo_data = data.get("photo_data", [])
+        orientation_data = data.get("orientation_data", [])
+
+        photo_size = tuple(camera_data[0]) if len(camera_data) > 0 else None
+        sensor_size = tuple(camera_data[1]) if len(camera_data) > 1 else None
+        focal_length = float(camera_data[2]) if len(camera_data) > 2 else None
+
+        timestamp = photo_data[1] if len(photo_data) > 1 else None
+        location = tuple(photo_data[2]) if len(photo_data) > 2 and photo_data[2] else None
+
+        gravity = tuple(orientation_data[0]) if len(orientation_data) > 0 else (0.0, 0.0, 0.0)
+
+        meta = PhotoMeta(
+            linked_image=image_name,
+            plate_solve_arguments=data.get("plate_solve_parameters", []),
+            photo_full_resolution=photo_size,
+            phone_sensor_size=sensor_size,
+            phone_focal_length=focal_length,
+            photo_utc_timestamp=timestamp,
+            photo_location=location,
+            phone_gravity_vector=gravity,
+            correction_vector_matrix=None,
+            photo_coordinates=None,
+            correction_degree=None,
+            photo_icrs=None,
+        )
+
+        config_path = data.get("app_config")
+        if config_path:
+            try:
+                arguments_c = load_config(Path(config_path))
+            except Exception:
+                arguments_c = {}
+        else:
+            # Load config.json from working directory
+            try:
+                arguments_c = load_config(Path('config.json'))
+            except Exception:
+                arguments_c = {}
+        backend_config_path = data.get("backend_config")
+        if backend_config_path:
+            arguments_c['backend_config'] = backend_config_path
+        if data.get("output_directory"):
+            arguments_c['output_directory'] = data.get("output_directory")
+        if data.get("index_directory"):
+            arguments_c['index_directory'] = data.get("index_directory") # Pass index directory
+
+        res = solve_photo(meta, arguments_c)
+
+        if res.get('error'):
+            print(f"\n{'#'*60}")
+            print(f"# STARGAZER PLATE SOLVE - FAILED")
+            print(f"{'#'*60}")
+            print(f"Error: {res['error']}")
+            print(f"{'#'*60}\n")
+            sys.stdout.flush()
+        elif res.get('no_match'):
+            print(f"\n{'#'*60}")
+            print(f"# STARGAZER PLATE SOLVE - NO MATCH")
+            print(f"{'#'*60}")
+            print(res.get('no_match_message', 'Could not identify any stars in this image.'))
+            print(f"{'#'*60}\n")
+            sys.stdout.flush()
+        else:
+            print(f"\n{'#'*60}")
+            print(f"# STARGAZER PLATE SOLVE - COMPLETED SUCCESSFULLY")
+            print(f"{'#'*60}")
+            print(f"ICRS (J2000): RA={res.get('calculated_icrs_coordinates_j2000', [None])[0]}°, Dec={res.get('calculated_icrs_coordinates_j2000', [None, None])[1]}°")
+            print(f"Location: Lat={res.get('calculated_location', [None])[0]}, Lon={res.get('calculated_location', [None, None])[1]}")
+            print(f"Location precision: {res.get('location_precision_km')} km")
+            print(f"{'#'*60}\n")
+            sys.stdout.flush()
+        
+        return json.dumps(res, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"\n{'#'*60}")
+        print(f"# STARGAZER PLATE SOLVE - EXCEPTION")
+        print(f"{'#'*60}")
+        print(f"Exception: {str(e)}")
+        print(f"{'#'*60}\n")
+        sys.stdout.flush()
+        return json.dumps({"error": str(e)})
 
 
 # calibrate_correction: aggregate per-photo local corrections into global bins
@@ -407,7 +568,8 @@ def calibrate_correction(arguments_c, images=None):
         combined = tools.combine_rotation_corrections(mats)
         cm_list.append([[float(bin_key[0]), float(bin_key[1])], combined.tolist()])
     arguments_c['correction_matrix'] = cm_list
-    save_config(Path('config.json'), arguments_c)
+    config_path = Path(arguments_c.get('config_path', 'config.json'))
+    save_config(config_path, arguments_c)
     return cm_list
 
 
@@ -430,6 +592,9 @@ if __name__ == "__main__":
 
     p_cal = sub.add_parser('calibrate')
     p_cal.add_argument('--images', nargs='*')
+
+    p_json_solve = sub.add_parser('json_solve')
+    p_json_solve.add_argument('json_string')
 
     args = parser.parse_args()
     if args.cmd == 'set':
@@ -474,6 +639,10 @@ if __name__ == "__main__":
                   is_imu_correction_get=args.imu_get,
                   is_imu_correction_local_set=args.imu_local_set)
         print(json.dumps(res, ensure_ascii=False, indent=2))
+        sys.exit(0)
+
+    if args.cmd == 'json_solve':
+        solve_photo_from_json(args.json_string)
         sys.exit(0)
 
     if args.cmd == 'calibrate':

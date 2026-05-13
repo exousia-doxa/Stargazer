@@ -987,6 +987,12 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
             case PreferenceKeys.MatrixWidthPreferenceKey:
             case PreferenceKeys.MatrixHeightPreferenceKey:
             case PreferenceKeys.FocalLengthPreferenceKey:
+            case PreferenceKeys.SolverFieldMinKey:
+            case PreferenceKeys.SolverFieldMaxKey:
+            case PreferenceKeys.SolverCpuLimitKey:
+            case PreferenceKeys.SolverWallTimeoutKey:
+            case PreferenceKeys.SolverMaxObjectsKey:
+            case PreferenceKeys.SolverHintRadiusKey:
                 EditTextPreference editTextPref = (EditTextPreference)findPreference(key);
                 if (editTextPref != null) {
                     String value = editTextPref.getText();
@@ -1028,6 +1034,12 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
                 case PreferenceKeys.MatrixWidthPreferenceKey:
                 case PreferenceKeys.MatrixHeightPreferenceKey:
                 case PreferenceKeys.FocalLengthPreferenceKey:
+                case PreferenceKeys.SolverFieldMinKey:
+                case PreferenceKeys.SolverFieldMaxKey:
+                case PreferenceKeys.SolverCpuLimitKey:
+                case PreferenceKeys.SolverWallTimeoutKey:
+                case PreferenceKeys.SolverMaxObjectsKey:
+                case PreferenceKeys.SolverHintRadiusKey:
                     String value = editTextPref.getText();
                     if (value == null || value.trim().isEmpty()) {
                         value = "0"; // Default value

@@ -3423,6 +3423,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
         int iso = 800; // default value if we can't get ISO
         long exposure_time = 1000000000L/30; // default value if we can't get shutter speed
         float zoom_factor = 1.0f;
+        float focal_length = 0.0f;
         if( main_activity.getPreview().getCameraController() != null ) {
             if( main_activity.getPreview().getCameraController().captureResultHasIso() ) {
                 iso = main_activity.getPreview().getCameraController().captureResultIso();
@@ -3436,6 +3437,12 @@ public class MyApplicationInterface extends BasicApplicationInterface {
             }
 
             zoom_factor = main_activity.getPreview().getZoomRatio();
+            if( main_activity.getPreview().getCameraController().captureResultHasFocusDistance() ) {
+                focal_length = main_activity.getPreview().getCameraController().captureResultFocusDistance();
+                if( MyDebug.LOG ) {
+                    Log.d(TAG, "capture_result_focus_distance: " + focal_length);
+                }
+            }
         }
 
         boolean has_thumbnail_animation = getThumbnailAnimationPref();
@@ -3546,7 +3553,10 @@ public class MyApplicationInterface extends BasicApplicationInterface {
                         store_location, location, store_geo_direction, geo_direction,
                         pitch_angle, store_ypr,
                         custom_tag_artist, custom_tag_copyright,
-                        sample_factor);
+                        sample_factor,
+                        focal_length,
+                        0.0f,
+                        0.0f);
 
                 if( photo_mode == PhotoMode.Panorama ) {
                     imageSaver.getImageBatchRequest().camera_view_angle_x = main_activity.getPreview().getViewAngleX(false);
@@ -3624,7 +3634,8 @@ public class MyApplicationInterface extends BasicApplicationInterface {
                     store_location, location, store_geo_direction, geo_direction,
                     pitch_angle, store_ypr,
                     custom_tag_artist, custom_tag_copyright,
-                    sample_factor);
+                    sample_factor,
+                    focal_length, 0.0f, 0.0f);
         }
 
         if( MyDebug.LOG )

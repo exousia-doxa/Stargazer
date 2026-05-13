@@ -1,5 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Plate-solver tuning arrays -->
+    <string-array name="preference_solver_field_units_entries">
+        <item>Arcminutes (field width)</item>
+        <item>Arcseconds per pixel</item>
+        <item>Degrees (field width)</item>
+        <item>Focal length (mm)</item>
+    </string-array>
+    <string-array name="preference_solver_field_units_values">
+        <item>arcminwidth</item>
+        <item>arcsecperpix</item>
+        <item>degwidth</item>
+        <item>focalmm</item>
+    </string-array>
+    <string-array name="preference_solver_downsample_entries">
+        <item>1 (none)</item>
+        <item>2</item>
+        <item>4</item>
+    </string-array>
+    <string-array name="preference_solver_downsample_values">
+        <item>1</item>
+        <item>2</item>
+        <item>4</item>
+    </string-array>
+    <string-array name="preference_solver_parity_entries">
+        <item>Both (default)</item>
+        <item>Positive only</item>
+        <item>Negative only</item>
+    </string-array>
+    <string-array name="preference_solver_parity_values">
+        <item>both</item>
+        <item>pos</item>
+        <item>neg</item>
+    </string-array>
+
     <string-array name="focus_mode_icons">
         <item>drawable/focus_mode_auto</item>
         <item>drawable/focus_mode_infinity</item>

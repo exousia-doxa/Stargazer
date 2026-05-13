@@ -12,7 +12,30 @@
     <string name="preference_matrix_height_summary">Set the height of the camera sensor matrix.</string>
     <string name="preference_focal_length">Focal Length</string>
     <string name="preference_focal_length_summary">Set the focal length of the camera.</string>
+
+    <!-- Plate-solver tuning -->
+    <string name="preference_category_solver">Plate Solver</string>
+    <string name="preference_solver_field_units">Field-width units</string>
+    <string name="preference_solver_field_min">Field width: minimum</string>
+    <string name="preference_solver_field_min_summary">Lower bound on field width, in the chosen units (default 30).</string>
+    <string name="preference_solver_field_max">Field width: maximum</string>
+    <string name="preference_solver_field_max_summary">Upper bound on field width, in the chosen units (default 180).</string>
+    <string name="preference_solver_cpu_limit">Engine CPU time limit (s)</string>
+    <string name="preference_solver_cpu_limit_summary">Maximum CPU seconds the solver may consume (default 60).</string>
+    <string name="preference_solver_wall_timeout">Wall-clock timeout (s)</string>
+    <string name="preference_solver_wall_timeout_summary">Hard wall-clock kill timer for the solver process (default 120).</string>
+    <string name="preference_solver_max_objects">Max stars considered</string>
+    <string name="preference_solver_max_objects_summary">How many of the brightest detected stars are passed to the engine (default 100).</string>
+    <string name="preference_solver_downsample">Downsample factor</string>
+    <string name="preference_solver_parity">Image parity</string>
+    <string name="preference_solver_hint_enabled">Use positional hint</string>
+    <string name="preference_solver_hint_enabled_summary">Use the device GPS as a coarse RA/Dec hint to speed up solving.</string>
+    <string name="preference_solver_hint_radius">Hint search radius (deg)</string>
+    <string name="preference_solver_hint_radius_summary">Radius of the search cone around the hint position (default 15°).</string>
+
     <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="run_python_solve">Run solve</string>
+    <string name="copy_python_log">Copy log</string>
 
     <string name="app_name">Open Camera</string> <!-- shouldn't be translated, unless deemed appropriate e.g. alternative alphabets -->
     <string name="action_settings">Settings</string>
