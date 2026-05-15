@@ -535,11 +535,12 @@ public class DrawPreview {
         if( want_thumbnail_animation && applicationInterface.getThumbnailAnimationPref() ) {
             if( MyDebug.LOG )
                 Log.d(TAG, "thumbnail_anim started");
-            thumbnail_anim = true;
-            thumbnail_anim_start_ms = System.currentTimeMillis();
-            test_thumbnail_anim_count++;
-            if( MyDebug.LOG )
-                Log.d(TAG, "test_thumbnail_anim_count is now: " + test_thumbnail_anim_count);
+            // thumbnail_anim disabled - gallery button removed
+            // thumbnail_anim = true;
+            // thumbnail_anim_start_ms = System.currentTimeMillis();
+            // test_thumbnail_anim_count++;
+            // if( MyDebug.LOG )
+            //     Log.d(TAG, "test_thumbnail_anim_count is now: " + test_thumbnail_anim_count);
         }
         Bitmap old_thumbnail = this.last_thumbnail;
         this.last_thumbnail = thumbnail;
@@ -2649,6 +2650,8 @@ public class DrawPreview {
                 this.thumbnail_anim = false;
             }
             else {
+                // thumbnail animation to gallery button removed
+                /*
                 thumbnail_anim_src_rect.left = 0;
                 thumbnail_anim_src_rect.top = 0;
                 thumbnail_anim_src_rect.right = last_thumbnail.getWidth();
@@ -2677,6 +2680,7 @@ public class DrawPreview {
                 thumbnail_anim_dst_rect.top = thumbnail_y - thumbnail_h/2.0f;
                 thumbnail_anim_dst_rect.right = thumbnail_x + thumbnail_w/2.0f;
                 thumbnail_anim_dst_rect.bottom = thumbnail_y + thumbnail_h/2.0f;
+                */
                 //canvas.drawBitmap(this.thumbnail, thumbnail_anim_src_rect, thumbnail_anim_dst_rect, p);
                 thumbnail_anim_matrix.setRectToRect(thumbnail_anim_src_rect, thumbnail_anim_dst_rect, Matrix.ScaleToFit.FILL);
                 //thumbnail_anim_matrix.reset();

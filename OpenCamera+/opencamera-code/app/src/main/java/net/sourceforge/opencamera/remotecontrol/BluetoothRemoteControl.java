@@ -142,16 +142,12 @@ public class BluetoothRemoteControl {
                         main_activity.takePicture(false);
                         break;
                     case BluetoothLeService.COMMAND_MODE:
-                        // "Mode" key :either toggles photo/video mode, or
-                        // closes the settings screen that is currently open
+                        // "Mode" key: closes the settings screen that is currently open
                         if( mainUI.popupIsOpen() ) {
                             mainUI.togglePopupSettings();
                         }
                         else if( mainUI.isExposureUIOpen() ) {
                             mainUI.toggleExposureUI();
-                        }
-                        else {
-                            main_activity.clickedSwitchVideo(null);
                         }
                         break;
                     case BluetoothLeService.COMMAND_MENU:

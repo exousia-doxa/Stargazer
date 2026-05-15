@@ -2543,24 +2543,6 @@ public class MyApplicationInterface extends BasicApplicationInterface {
                 }
             }
             if( thumbnail != null ) {
-                ImageButton galleryButton = main_activity.findViewById(R.id.gallery);
-                int width = thumbnail.getWidth();
-                int height = thumbnail.getHeight();
-                if( MyDebug.LOG )
-                    Log.d(TAG, "    video thumbnail size " + width + " x " + height);
-                if( width > galleryButton.getWidth() ) {
-                    float scale = (float) galleryButton.getWidth() / width;
-                    int new_width = Math.round(scale * width);
-                    int new_height = Math.round(scale * height);
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "    scale video thumbnail to " + new_width + " x " + new_height);
-                    Bitmap scaled_thumbnail = Bitmap.createScaledBitmap(thumbnail, new_width, new_height, true);
-                    // careful, as scaled_thumbnail is sometimes not a copy!
-                    if( scaled_thumbnail != thumbnail ) {
-                        thumbnail.recycle();
-                        thumbnail = scaled_thumbnail;
-                    }
-                }
                 final Bitmap thumbnail_f = thumbnail;
                 main_activity.runOnUiThread(new Runnable() {
                     public void run() {

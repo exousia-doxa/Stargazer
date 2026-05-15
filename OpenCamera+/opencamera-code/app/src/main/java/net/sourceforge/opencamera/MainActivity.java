@@ -135,6 +135,8 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.hardware.camera2.CameraManager;
+import android.hardware.camera2.CameraCharacteristics;
 import android.app.AlertDialog;
 import android.view.LayoutInflater;
 import android.widget.TextView;
@@ -189,6 +191,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     private ValueAnimator gallery_save_anim;
     private boolean last_continuous_fast_burst; // whether the last photo operation was a continuous_fast_burst
     private Future<?> update_gallery_future;
+    private boolean called_from_stargazer; // whether MainActivity was called from StargazerActivity for settings
 
     private TextToSpeech textToSpeech;
     private boolean textToSpeechSuccess;
@@ -224,7 +227,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     private List<Integer> front_camera_ids;
     private List<Integer> other_camera_ids;
 
-    private final ToastBoxer switch_video_toast = new ToastBoxer();
     private final ToastBoxer screen_locked_toast = new ToastBoxer();
     private final ToastBoxer stamp_toast = new ToastBoxer();
     private final ToastBoxer changed_auto_stabilise_toast = new ToastBoxer();
@@ -242,7 +244,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     static private final String ACTION_SHORTCUT_CAMERA = "net.sourceforge.opencamera.SHORTCUT_CAMERA";
     static private final String ACTION_SHORTCUT_SELFIE = "net.sourceforge.opencamera.SHORTCUT_SELFIE";
     static private final String ACTION_SHORTCUT_VIDEO = "net.sourceforge.opencamera.SHORTCUT_VIDEO";
-    static private final String ACTION_SHORTCUT_GALLERY = "net.sourceforge.opencamera.SHORTCUT_GALLERY";
     static private final String ACTION_SHORTCUT_SETTINGS = "net.sourceforge.opencamera.SHORTCUT_SETTINGS";
 
     private static final int CHOOSE_SAVE_FOLDER_SAF_CODE = 42;
@@ -367,37 +368,89 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         ensureStargazerBackendConfig(indexDir);
     }
 
-    public void showCaptureDetailsPopup(String imageName, int photoWidth, int photoHeight, String time, double latitude, double longitude, float[] gravityData) {
-        if (MyDebug.LOG)
-            Log.d(TAG, "showCaptureDetailsPopup");
+    private class CameraParams {
+        BigDecimal matrixWidth;
+        BigDecimal matrixHeight;
+        BigDecimal focalLength;
+        CameraParams(BigDecimal w, BigDecimal h, BigDecimal f) {
+            this.matrixWidth = w;
+            this.matrixHeight = h;
+            this.focalLength = f;
+        }
+    }
 
-        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
-        String matrixWidthStr = sharedPreferences.getString(PreferenceKeys.MatrixWidthPreferenceKey, "0");
-        String matrixHeightStr = sharedPreferences.getString(PreferenceKeys.MatrixHeightPreferenceKey, "0");
-        String focalLengthStr = sharedPreferences.getString(PreferenceKeys.FocalLengthPreferenceKey, "0");
-
+    private CameraParams getCameraParametersFromHardware() {
         BigDecimal matrixWidth = BigDecimal.ZERO;
         BigDecimal matrixHeight = BigDecimal.ZERO;
         BigDecimal focalLength = BigDecimal.ZERO;
 
         try {
-            if (matrixWidthStr != null && !matrixWidthStr.isEmpty())
-                matrixWidth = new BigDecimal(matrixWidthStr);
-        } catch (NumberFormatException e) {
-            if (MyDebug.LOG) Log.e(TAG, "Could not parse matrixWidth: " + matrixWidthStr);
+            if (preview == null || preview.getCameraController() == null) {
+                return new CameraParams(matrixWidth, matrixHeight, focalLength);
+            }
+
+            CameraController camera_controller = preview.getCameraController();
+            int cameraId = camera_controller.getCameraId();
+            String cameraIdStr = String.valueOf(cameraId);
+            CameraManager cameraManager = (CameraManager) getSystemService(CAMERA_SERVICE);
+
+            if (cameraManager != null) {
+                CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraIdStr);
+
+                android.util.SizeF physicalSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+                float[] focalLengths = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+
+                if (physicalSize != null) {
+                    matrixWidth = new BigDecimal(physicalSize.getWidth());
+                    matrixHeight = new BigDecimal(physicalSize.getHeight());
+                }
+
+                if (focalLengths != null && focalLengths.length > 0) {
+                    float baseFocalLength = focalLengths[0];
+                    float zoomRatio = 1.0f;
+
+                    try {
+                        CameraController.CameraFeatures camera_features = camera_controller.getCameraFeatures();
+                        if (camera_features != null && camera_features.zoom_ratios != null) {
+                            int current_zoom = camera_controller.getZoom();
+                            if (current_zoom >= 0 && current_zoom < camera_features.zoom_ratios.size()) {
+                                zoomRatio = camera_features.zoom_ratios.get(current_zoom) / 100.0f;
+                            }
+                        }
+                    } catch (Exception e) {
+                        if (MyDebug.LOG) {
+                            Log.d(TAG, "Could not get zoom ratio, using 1.0x: " + e.getMessage());
+                        }
+                    }
+
+                    focalLength = new BigDecimal(baseFocalLength * zoomRatio);
+
+                    if (MyDebug.LOG) {
+                        Log.d(TAG, "Camera params from hardware: matrix=" + matrixWidth + "x" + matrixHeight + " mm, focal=" + focalLength + " mm (zoom=" + zoomRatio + "x)");
+                    }
+                } else if (MyDebug.LOG) {
+                    Log.d(TAG, "Camera params from hardware: matrix=" + matrixWidth + "x" + matrixHeight + " mm, focal lengths not available");
+                }
+            }
+        } catch (Exception e) {
+            if (MyDebug.LOG) {
+                Log.e(TAG, "Error getting camera parameters from hardware: " + e.getMessage());
+            }
         }
-        try {
-            if (matrixHeightStr != null && !matrixHeightStr.isEmpty())
-                matrixHeight = new BigDecimal(matrixHeightStr);
-        } catch (NumberFormatException e) {
-            if (MyDebug.LOG) Log.e(TAG, "Could not parse matrixHeight: " + matrixHeightStr);
-        }
-        try {
-            if (focalLengthStr != null && !focalLengthStr.isEmpty())
-                focalLength = new BigDecimal(focalLengthStr);
-        } catch (NumberFormatException e) {
-            if (MyDebug.LOG) Log.e(TAG, "Could not parse focalLength: " + focalLengthStr);
-        }
+
+        return new CameraParams(matrixWidth, matrixHeight, focalLength);
+    }
+
+    public void showCaptureDetailsPopup(String imageName, int photoWidth, int photoHeight, String time, double latitude, double longitude, float[] gravityData) {
+        if (MyDebug.LOG)
+            Log.d(TAG, "showCaptureDetailsPopup");
+
+        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
+
+        CameraParams cameraParams = getCameraParametersFromHardware();
+        BigDecimal matrixWidth = cameraParams.matrixWidth;
+        BigDecimal matrixHeight = cameraParams.matrixHeight;
+        BigDecimal focalLength = cameraParams.focalLength;
 
         try {
             JSONObject root = new JSONObject();
@@ -944,21 +997,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             }
         });
 
-        // set up gallery button long click
-        View galleryButton = findViewById(R.id.gallery);
-        galleryButton.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                if( !allowLongPress() ) {
-                    // return false, so a regular click will still be triggered when the user releases the touch
-                    return false;
-                }
-                //preview.showToast(null, "Long click");
-                longClickedGallery();
-                return true;
-            }
-        });
-
         if( MyDebug.LOG )
             Log.d(TAG, "onCreate: time after setting long click listeners: " + (System.currentTimeMillis() - debug_time));
 
@@ -1316,14 +1354,12 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             done_facing = true;
             applicationInterface.switchToCamera(true);
         }
-        else if( ACTION_SHORTCUT_GALLERY.equals(action) ) {
-            if( MyDebug.LOG )
-                Log.d(TAG, "launching from application shortcut for Open Camera: gallery");
-            openGallery();
-        }
         else if( ACTION_SHORTCUT_SETTINGS.equals(action) ) {
             if( MyDebug.LOG )
                 Log.d(TAG, "launching from application shortcut for Open Camera: settings");
+            called_from_stargazer = getIntent().getBooleanExtra("from_stargazer", false);
+            if( MyDebug.LOG )
+                Log.d(TAG, "called_from_stargazer: " + called_from_stargazer);
             openSettings();
         }
 
@@ -1706,23 +1742,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             Log.d(TAG, "launchOnlineHelp");
         // if we change this, remember that any page linked to must abide by Google Play developer policies!
         Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(getOnlineHelpUrl("")));
-        startActivity(browserIntent);
-    }
-
-    void launchOnlinePrivacyPolicy() {
-        if( MyDebug.LOG )
-            Log.d(TAG, "launchOnlinePrivacyPolicy");
-        // if we change this, remember that any page linked to must abide by Google Play developer policies!
-        //Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(getOnlineHelpUrl("index.html#privacy")));
-        Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(getOnlineHelpUrl("privacy_oc.html")));
-        startActivity(browserIntent);
-    }
-
-    void launchOnlineLicences() {
-        if( MyDebug.LOG )
-            Log.d(TAG, "launchOnlineLicences");
-        // if we change this, remember that any page linked to must abide by Google Play developer policies!
-        Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(getOnlineHelpUrl("#licence")));
         startActivity(browserIntent);
     }
 
@@ -3122,36 +3141,6 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     /**
      * Toggles Photo/Video mode
      */
-    public void clickedSwitchVideo(View view) {
-        if( MyDebug.LOG )
-            Log.d(TAG, "clickedSwitchVideo");
-        this.closePopup();
-        mainUI.destroyPopup(); // important as we don't want to use a cached popup, as we can show different options depending on whether we're in photo or video mode
-
-        // In practice stopping the gyro sensor shouldn't be needed as (a) we don't show the switch
-        // photo/video icon when recording, (b) at the time of writing switching to video mode
-        // reopens the camera, which will stop panorama recording anyway, but we do this just to be
-        // safe.
-        applicationInterface.stopPanorama(true);
-
-        View switchVideoButton = findViewById(R.id.switch_video);
-        switchVideoButton.setEnabled(false); // prevent slowdown if user repeatedly clicks
-        applicationInterface.reset(false);
-        this.getApplicationInterface().getDrawPreview().setDimPreview(true);
-        this.preview.switchVideo(false, true);
-        switchVideoButton.setEnabled(true);
-
-        mainUI.setTakePhotoIcon();
-        mainUI.setPopupIcon(); // needed as turning to video mode or back can turn flash mode off or back on
-
-        // ensure icons invisible if they're affected by being in video mode or not (e.g., on-screen RAW icon)
-        // (if enabling them, we'll make the icon visible later on)
-        checkDisableGUIIcons();
-
-        if( !block_startup_toast ) {
-            this.showPhotoVideoToast(true);
-        }
-    }
 
     public void clickedWhiteBalanceLock(View view) {
         if( MyDebug.LOG )
@@ -4022,6 +4011,14 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     void settingsClosing() {
         if( MyDebug.LOG )
             Log.d(TAG, "close settings");
+
+        if( called_from_stargazer ) {
+            if( MyDebug.LOG )
+                Log.d(TAG, "closing settings called from stargazer - finishing activity");
+            finish();
+            return;
+        }
+
         setWindowFlagsForCamera();
         showPreview(true);
 
@@ -4685,15 +4682,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             setRecentsScreenshotEnabled(false);
         }
 
-        if( lock_to_landscape ) {
-            // force to landscape mode
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-            //setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE); // testing for devices with unusual sensor orientation (e.g., Nexus 5X)
-        }
-        else {
-            // allow orientation to change for camera, even if user has locked orientation
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR);
-        }
+        // force portrait mode always
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         if( preview != null ) {
             // also need to call preview.setCameraDisplayOrientation, as this handles if the user switched from portrait to reverse landscape whilst in settings/etc
             // as switching from reverse landscape back to landscape isn't detected in onConfigurationChanged
@@ -4784,8 +4774,8 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             setRecentsScreenshotEnabled(true);
         }
 
-        // allow screen rotation
-        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        // lock to portrait (no rotation)
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
 
         // revert to standard screen blank behaviour
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -5007,242 +4997,30 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
     /** Shows the default "blank" gallery icon, when we don't have a thumbnail available.
      */
     private void updateGalleryIconToBlank() {
-        if( MyDebug.LOG )
-            Log.d(TAG, "updateGalleryIconToBlank");
-        ImageButton galleryButton = this.findViewById(R.id.gallery);
-        int bottom = galleryButton.getPaddingBottom();
-        int top = galleryButton.getPaddingTop();
-        int right = galleryButton.getPaddingRight();
-        int left = galleryButton.getPaddingLeft();
-	    /*if( MyDebug.LOG )
-			Log.d(TAG, "padding: " + bottom);*/
-        galleryButton.setImageBitmap(null);
-        galleryButton.setImageResource(R.drawable.baseline_photo_library_white_48);
-        // workaround for setImageResource also resetting padding, Android bug
-        galleryButton.setPadding(left, top, right, bottom);
-        gallery_bitmap = null;
+        // gallery button removed
     }
 
     /** Shows a thumbnail for the gallery icon.
      */
     void updateGalleryIcon(Bitmap thumbnail) {
-        if( MyDebug.LOG )
-            Log.d(TAG, "updateGalleryIcon: " + thumbnail);
-        // If we're currently running the background task to update the gallery (see updateGalleryIcon()), we should cancel that!
-        // Otherwise if user takes a photo whilst the background task is still running, the thumbnail from the latest photo will
-        // be overridden when the background task completes. This is more likely when using SAF on Android 10+ with scoped storage,
-        // due to SAF's poor performance for folders with large number of files.
-        if( update_gallery_future != null ) {
-            if( MyDebug.LOG )
-                Log.d(TAG, "cancel update_gallery_future");
-            update_gallery_future.cancel(true);
-        }
-        ImageButton galleryButton = this.findViewById(R.id.gallery);
-        galleryButton.setImageBitmap(thumbnail);
-        gallery_bitmap = thumbnail;
+        // gallery button removed
     }
 
     /** Updates the gallery icon by searching for the most recent photo.
      *  Launches the task in a separate thread.
      */
     public void updateGalleryIcon() {
-        long debug_time = 0;
-        if( MyDebug.LOG ) {
-            Log.d(TAG, "updateGalleryIcon");
-            debug_time = System.currentTimeMillis();
-        }
-        if( update_gallery_future != null ) {
-            Log.d(TAG, "previous updateGalleryIcon task already running");
-            return;
-        }
-
-        SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this);
-        String ghost_image_pref = sharedPreferences.getString(PreferenceKeys.GhostImagePreferenceKey, "preference_ghost_image_off");
-        final boolean ghost_image_last = ghost_image_pref.equals("preference_ghost_image_last");
-
-        final Handler handler = new Handler(Looper.getMainLooper());
-
-        //new AsyncTask<Void, Void, Bitmap>() {
-        Runnable runnable = new Runnable() {
-            private static final String TAG = "updateGalleryIcon";
-            private Uri uri;
-            private boolean is_raw;
-            private boolean is_video;
-
-            @Override
-            //protected Bitmap doInBackground(Void... params) {
-            public void run() {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "doInBackground");
-                StorageUtils.Media media = applicationInterface.getStorageUtils().getLatestMedia();
-                Bitmap thumbnail = null;
-                KeyguardManager keyguard_manager = (KeyguardManager)MainActivity.this.getSystemService(Context.KEYGUARD_SERVICE);
-                boolean is_locked = keyguard_manager != null && keyguard_manager.inKeyguardRestrictedInputMode();
-                if( MyDebug.LOG )
-                    Log.d(TAG, "is_locked?: " + is_locked);
-                if( media != null && getContentResolver() != null && !is_locked ) {
-                    // check for getContentResolver() != null, as have had reported Google Play crashes
-
-                    uri = media.getMediaStoreUri(MainActivity.this);
-                    is_raw = media.filename != null && StorageUtils.filenameIsRaw(media.filename);
-                    is_video = media.video;
-
-                    if( ghost_image_last && !media.video ) {
-                        if( MyDebug.LOG )
-                            Log.d(TAG, "load full size bitmap for ghost image last photo");
-                        // use sample factor of 1 so that it's full size for ghost image
-                        thumbnail = loadThumbnailFromUri(media.uri, 1);
-                    }
-                    if( thumbnail == null ) {
-                        try {
-                            if( !media.video ) {
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "load thumbnail for photo");
-                                // use sample factor as this image is only used for thumbnail; and
-                                // unlike code in MyApplicationInterface.saveImage() we don't need to
-                                // worry about the thumbnail animation when taking/saving a photo
-                                thumbnail = loadThumbnailFromUri(media.uri, 8);
-                            }
-                            else if( !media.mediastore ) {
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "load thumbnail for video from SAF uri");
-                                ParcelFileDescriptor pfd_saf = null; // keep a reference to this as long as retriever, to avoid risk of pfd_saf being garbage collected
-                                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-                                try {
-                                    pfd_saf = getContentResolver().openFileDescriptor(media.uri, "r");
-                                    retriever.setDataSource(pfd_saf.getFileDescriptor());
-                                    thumbnail = retriever.getFrameAtTime(-1);
-                                }
-                                catch(Exception e) {
-                                    MyDebug.logStackTrace(TAG, "failed to load video thumbnail", e);
-                                }
-                                finally {
-                                    try {
-                                        retriever.release();
-                                    }
-                                    catch(RuntimeException ex) {
-                                        // ignore
-                                    }
-                                    try {
-                                        if( pfd_saf != null ) {
-                                            pfd_saf.close();
-                                        }
-                                    }
-                                    catch(IOException e) {
-                                        MyDebug.logStackTrace(TAG, "failed to close pfd_saf", e);
-                                    }
-                                }
-                            }
-                            else {
-                                if( MyDebug.LOG )
-                                    Log.d(TAG, "load thumbnail for video");
-                                if( Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ) {
-                                    final Size size = new Size(512, 384); // same as MediaStore.ThumbnailConstants.MINI_SIZE, which is used for MediaStore.Video.Thumbnails.MINI_KIND
-                                    thumbnail = getContentResolver().loadThumbnail(media.uri, size, new CancellationSignal());
-                                }
-                                else {
-                                    // non-deprecated getContentResolver().loadThumbnail requires Android Q
-                                    //noinspection deprecation
-                                    thumbnail = MediaStore.Video.Thumbnails.getThumbnail(getContentResolver(), media.id, MediaStore.Video.Thumbnails.MINI_KIND, null);
-                                }
-                            }
-                        }
-                        catch(Throwable e) {
-                            // have had Google Play NoClassDefFoundError crashes from getThumbnail() for Galaxy Ace4 (vivalto3g), Galaxy S Duos3 (vivalto3gvn)
-                            // also NegativeArraySizeException - best to catch everything
-                            if( MyDebug.LOG )
-                                Log.e(TAG, "thumbnail exception");
-                            MyDebug.logStackTrace(TAG, "thumbnail exception", e);
-                        }
-                    }
-                }
-                //return thumbnail;
-
-                final Bitmap thumbnail_f = thumbnail;
-                handler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        onPostExecute(thumbnail_f);
-                    }
-                });
-            }
-
-            /** Runs on UI thread, after background work is complete.
-             */
-            private void onPostExecute(Bitmap thumbnail) {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "onPostExecute");
-                if( update_gallery_future != null && update_gallery_future.isCancelled() ) {
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "was cancelled");
-                    update_gallery_future = null;
-                    return;
-                }
-                // since we're now setting the thumbnail to the latest media on disk, we need to make sure clicking the Gallery goes to this
-                applicationInterface.getStorageUtils().clearLastMediaScanned();
-                if( uri != null ) {
-                    if( MyDebug.LOG ) {
-                        Log.d(TAG, "found media uri: " + uri);
-                        Log.d(TAG, "    is_raw?: " + is_raw);
-                    }
-                    applicationInterface.getStorageUtils().setLastMediaScanned(uri, is_raw, false, null);
-                }
-                if( thumbnail != null ) {
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "set gallery button to thumbnail");
-                    updateGalleryIcon(thumbnail);
-                    applicationInterface.getDrawPreview().updateThumbnail(thumbnail, is_video, false); // needed in case last ghost image is enabled
-                }
-                else {
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "set gallery button to blank");
-                    updateGalleryIconToBlank();
-                }
-
-                update_gallery_future = null;
-            }
-        //}.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-        };
-
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        //executor.execute(runnable);
-        update_gallery_future = executor.submit(runnable);
-
-        if( MyDebug.LOG )
-            Log.d(TAG, "updateGalleryIcon: total time to update gallery icon: " + (System.currentTimeMillis() - debug_time));
+        // gallery button removed
     }
 
     void savingImage(final boolean started) {
         if( MyDebug.LOG )
             Log.d(TAG, "savingImage: " + started);
 
-        this.runOnUiThread(new Runnable() {
-            public void run() {
-                final ImageButton galleryButton = findViewById(R.id.gallery);
-                if( started ) {
-                    //galleryButton.setColorFilter(0x80ffffff, PorterDuff.Mode.MULTIPLY);
-                    if( gallery_save_anim == null ) {
-                        gallery_save_anim = ValueAnimator.ofInt(Color.argb(200, 255, 255, 255), Color.argb(63, 255, 255, 255));
-                        gallery_save_anim.setEvaluator(new ArgbEvaluator());
-                        gallery_save_anim.setRepeatCount(ValueAnimator.INFINITE);
-                        gallery_save_anim.setRepeatMode(ValueAnimator.REVERSE);
-                        gallery_save_anim.setDuration(500);
-                    }
-                    gallery_save_anim.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
-                        @Override
-                        public void onAnimationUpdate(@NonNull ValueAnimator animation) {
-                            galleryButton.setColorFilter((Integer)animation.getAnimatedValue(), PorterDuff.Mode.MULTIPLY);
-                        }
-                    });
-                    gallery_save_anim.start();
-                }
-                else
-                if( gallery_save_anim != null ) {
-                    gallery_save_anim.cancel();
-                }
-                galleryButton.setColorFilter(null);
-            }
-        });
+        // gallery button animation removed
+        if( gallery_save_anim != null && !started ) {
+            gallery_save_anim.cancel();
+        }
     }
 
     /** Called when the number of images being saved in ImageSaver changes (or otherwise something
@@ -5297,109 +5075,7 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         }*/
     }
 
-    public void clickedGallery(View view) {
-        if( MyDebug.LOG )
-            Log.d(TAG, "clickedGallery");
-        openGallery();
-    }
 
-    private void openGallery() {
-        if( MyDebug.LOG )
-            Log.d(TAG, "openGallery");
-        //Intent intent = new Intent(Intent.ACTION_VIEW, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
-        Uri uri = applicationInterface.getStorageUtils().getLastMediaScanned();
-        boolean is_raw = uri != null && applicationInterface.getStorageUtils().getLastMediaScannedIsRaw();
-        if( MyDebug.LOG && uri != null ) {
-            Log.d(TAG, "found cached most recent uri: " + uri);
-            Log.d(TAG, "    is_raw: " + is_raw);
-        }
-        if( uri == null ) {
-            if( MyDebug.LOG )
-                Log.d(TAG, "go to latest media");
-            StorageUtils.Media media = applicationInterface.getStorageUtils().getLatestMedia();
-            if( media != null ) {
-                if( MyDebug.LOG ) {
-                    Log.d(TAG, "latest uri:" + media.uri);
-                    Log.d(TAG, "filename: " + media.filename);
-                }
-                uri = media.getMediaStoreUri(this);
-                if( MyDebug.LOG )
-                    Log.d(TAG, "media uri:" + uri);
-                is_raw = media.filename != null && StorageUtils.filenameIsRaw(media.filename);
-                if( MyDebug.LOG )
-                    Log.d(TAG, "is_raw:" + is_raw);
-            }
-        }
-
-        if( uri != null && !MainActivity.useScopedStorage() ) {
-            // check uri exists
-            // note, with scoped storage this isn't reliable when using SAF - since we don't actually have permission to access mediastore URIs that
-            // were created via Storage Access Framework, even though Open Camera was the application that saved them(!)
-            try {
-                ContentResolver cr = getContentResolver();
-                ParcelFileDescriptor pfd = cr.openFileDescriptor(uri, "r");
-                if( pfd == null ) {
-                    if( MyDebug.LOG )
-                        Log.d(TAG, "uri no longer exists (1): " + uri);
-                    uri = null;
-                    is_raw = false;
-                }
-                else {
-                    pfd.close();
-                }
-            }
-            catch(IOException e) {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "uri no longer exists (2): " + uri);
-                uri = null;
-                is_raw = false;
-            }
-        }
-        if( uri == null ) {
-            uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-            is_raw = false;
-        }
-        if( !is_test ) {
-            // don't do if testing, as unclear how to exit activity to finish test (for testGallery())
-            if( MyDebug.LOG )
-                Log.d(TAG, "launch uri:" + uri);
-            final String REVIEW_ACTION = "com.android.camera.action.REVIEW";
-            boolean done = false;
-            if( !is_raw ) {
-                // REVIEW_ACTION means we can view video files without autoplaying.
-                // However, Google Photos at least has problems with going to a RAW photo (in RAW only mode),
-                // unless we first pause and resume Open Camera.
-                // Update: on Galaxy S10e with Android 11 at least, no longer seem to have problems, but leave
-                // the check for is_raw just in case for older devices.
-                if( MyDebug.LOG )
-                    Log.d(TAG, "try REVIEW_ACTION");
-                try {
-                    Intent intent = new Intent(REVIEW_ACTION, uri);
-                    this.startActivity(intent);
-                    done = true;
-                }
-                catch(ActivityNotFoundException e) {
-                    MyDebug.logStackTrace(TAG, "failed to start REVIEW_ACTION intent", e);
-                }
-            }
-            if( !done ) {
-                if( MyDebug.LOG )
-                    Log.d(TAG, "try ACTION_VIEW");
-                try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, uri);
-                    this.startActivity(intent);
-                }
-                catch(ActivityNotFoundException e) {
-                    MyDebug.logStackTrace(TAG, "failed to start ACTION_VIEW intent", e);
-                    preview.showToast(null, R.string.no_gallery_app);
-                }
-                catch(SecurityException e) {
-                    // have received this crash from Google Play - don't display a toast, simply do nothing
-                    MyDebug.logStackTrace(TAG, "SecurityException from ACTION_VIEW startActivity", e);
-                }
-            }
-        }
-    }
 
     /** Opens the Storage Access Framework dialog to select a folder for save location.
      * @param from_preferences Whether called from the Preferences
@@ -7146,10 +6822,10 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             if( push_info_toast_text != null ) {
                 toast_string = push_info_toast_text + "\n" + toast_string;
             }
-            preview.showToast(switch_video_toast, toast_string, use_fake_toast);
+            preview.showToast(screen_locked_toast, toast_string, use_fake_toast);
         }
         else if( push_info_toast_text != null ) {
-            preview.showToast(switch_video_toast, push_info_toast_text, use_fake_toast);
+            preview.showToast(screen_locked_toast, push_info_toast_text, use_fake_toast);
         }
         push_info_toast_text = null; // reset
     }

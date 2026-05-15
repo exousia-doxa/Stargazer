@@ -41,6 +41,7 @@ public class StargazerActivity extends AppCompatActivity {
     private static final String TAG = "StargazerActivity";
     private static final int REQUEST_CAPTURE = 100;
     private static final int REQUEST_GALLERY = 101;
+    private static final int REQUEST_SETTINGS = 102;
 
     private String currentJsonString = null;
     private String originalPhotoName = null;
@@ -156,6 +157,28 @@ public class StargazerActivity extends AppCompatActivity {
                 timestamp = photoData.optString(1, "N/A");
             }
 
+            // Camera matrix size (physical sensor dimensions in mm)
+            String matrixSize = "N/A";
+            if (cameraData != null && cameraData.length() > 1) {
+                JSONArray matrixArray = cameraData.optJSONArray(1);
+                if (matrixArray != null && matrixArray.length() >= 2) {
+                    double matrixW = matrixArray.optDouble(0);
+                    double matrixH = matrixArray.optDouble(1);
+                    if (matrixW > 0 && matrixH > 0) {
+                        matrixSize = String.format("%.2f x %.2f mm", matrixW, matrixH);
+                    }
+                }
+            }
+
+            // Focal length
+            String focalLength = "N/A";
+            if (cameraData != null && cameraData.length() > 2) {
+                double fLen = cameraData.optDouble(2);
+                if (fLen > 0) {
+                    focalLength = String.format("%.2f mm", fLen);
+                }
+            }
+
             // Location
             String location = "N/A";
             if (photoData != null && photoData.length() > 2) {
@@ -184,6 +207,8 @@ public class StargazerActivity extends AppCompatActivity {
             // Add rows to table
             addTableRow("Photo Name", photoName);
             addTableRow("Dimension", dimensions);
+            addTableRow("Matrix Size", matrixSize);
+            addTableRow("Focal Length", focalLength);
             addTableRow("Timestamp", timestamp);
             addTableRow("Location", location);
             addTableRow("Orientation X", orientX);
@@ -352,6 +377,25 @@ public class StargazerActivity extends AppCompatActivity {
                                     if (precision >= 0) {
                                         addSolverResultRow("Precision", String.format("%.1f km", precision));
                                     }
+
+                                    // Index name
+                                    String indexName = resJson.optString("index_name", "Unknown");
+                                    if (!indexName.isEmpty() && !indexName.equals("Unknown")) {
+                                        addSolverResultRow("Index", indexName);
+                                    }
+
+                                    // Zenith offset (degrees and km)
+                                    double zenithOffsetDeg = resJson.optDouble("zenith_offset_degrees", -1);
+                                    double zenithOffsetKm = resJson.optDouble("zenith_offset_km", -1);
+                                    if (zenithOffsetDeg >= 0) {
+                                        addSolverResultRow("Zenith offset", String.format("%.2f° (~%.1f km)", zenithOffsetDeg, zenithOffsetKm));
+                                    }
+
+                                    // Zenith mismatch impact percentage
+                                    double mismatchPercent = resJson.optDouble("zenith_mismatch_impact_percent", -1);
+                                    if (mismatchPercent >= 0 && precision >= 0) {
+                                        addSolverResultRow("Zenith mismatch impact", String.format("%.1f%%", mismatchPercent));
+                                    }
                                 });
                             }
                         } catch (org.json.JSONException ignored) {
@@ -456,7 +500,8 @@ public class StargazerActivity extends AppCompatActivity {
 
     private void onClickSettings() {
         Intent intent = new Intent(this, SettingsActivity.class);
-        startActivity(intent);
+        intent.putExtra("from_stargazer", true);
+        startActivityForResult(intent, REQUEST_SETTINGS);
     }
 
     private void appendConsoleLine(TextView consoleView, String line) {

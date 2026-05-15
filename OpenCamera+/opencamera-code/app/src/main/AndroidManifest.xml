@@ -43,6 +43,7 @@
         <activity
             android:name="net.sourceforge.opencamera.StargazerActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="portrait"
             android:exported="true"
             >
             <intent-filter>
@@ -54,6 +55,7 @@
         <activity
             android:name="net.sourceforge.opencamera.MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="portrait"
             android:clearTaskOnLaunch="true"
             android:exported="true"
             >
@@ -87,12 +89,14 @@
         <activity
             android:name="net.sourceforge.opencamera.remotecontrol.DeviceScanner"
             android:label="@string/scan_ble"
+            android:screenOrientation="portrait"
             android:exported="false"
         >
         </activity>
         <activity
             android:name="net.sourceforge.opencamera.SettingsActivity"
             android:label="@string/settings"
+            android:screenOrientation="portrait"
             android:exported="false"
         >
         </activity>
@@ -103,6 +107,7 @@
             android:label="@string/take_photo"
             android:icon="@drawable/ic_launcher_take_photo"
             android:configChanges="orientation|screenSize|keyboardHidden"
+            android:screenOrientation="portrait"
             android:taskAffinity=""
             android:excludeFromRecents="true"
             android:exported="false"

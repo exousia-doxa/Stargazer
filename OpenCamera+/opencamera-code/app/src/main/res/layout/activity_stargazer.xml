@@ -178,7 +178,7 @@
             android:layout_width="0dp"
             android:layout_height="56dp"
             android:layout_weight="1"
-            android:text="@string/settings"
+            android:text="@string/solver_settings"
             android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@android:color/white"

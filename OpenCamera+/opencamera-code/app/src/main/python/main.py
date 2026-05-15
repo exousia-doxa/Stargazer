@@ -359,10 +359,37 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         obs_location = tools.find_location_via_icrs(obs_zenith_icrs_j2000[0], obs_zenith_icrs_j2000[1], observation_timestamp, loc_best_guess)
         print(f"Location computed from sky: {obs_location[0]}, {obs_location[1]}")
 
+        # Extract index name from solver output log
+        index_name = "Unknown"
+        try:
+            log_path = Path(output_directory) / "solve.log"
+            if log_path.exists():
+                with open(log_path, 'r') as f:
+                    for line in f:
+                        if "solved with index" in line.lower():
+                            # Extract index name: "solved with index <name>"
+                            parts = line.split("index", 1)
+                            if len(parts) > 1:
+                                raw_name = parts[1].strip()
+                                # Trim everything after first "."
+                                if '.' in raw_name:
+                                    index_name = raw_name.split('.')[0].strip()
+                                else:
+                                    index_name = raw_name.strip()
+                                break
+        except Exception as e:
+            print(f"DEBUG: Could not extract index name from log: {e}")
+
+        # Calculate zenith offset in km (~111 km/degree)
+        zenith_offset_km = obs_angle_deg * 111.0
+
         results.update({'calculated_photo_coordinates': obs_zenith_xy,
                         'calculated_icrs_coordinates_epoch': obs_zenith_icrs,
                         'calculated_icrs_coordinates_j2000': obs_zenith_icrs_j2000,
-                        'calculated_location': obs_location})
+                        'calculated_location': obs_location,
+                        'zenith_offset_degrees': round(float(obs_angle_deg), 2),
+                        'zenith_offset_km': round(float(zenith_offset_km), 2),
+                        'index_name': index_name})
 
         # perform local calibration if requested and actual GPS is available
         if is_calibrating and actual_latitude is not None:
@@ -417,6 +444,13 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             c = 2 * asin(sqrt(a))
             location_precision_km = round(6371 * c, 2)
             results['location_precision_km'] = location_precision_km
+
+            # Calculate zenith mismatch impact percentage
+            if results.get('zenith_offset_km') and results.get('zenith_offset_km') > 0:
+                zenith_offset_km = float(results['zenith_offset_km'])
+                mismatch_impact_percent = round((zenith_offset_km / location_precision_km * 100), 2) if location_precision_km > 0 else 0
+                results['zenith_mismatch_impact_percent'] = mismatch_impact_percent
+                print(f"Zenith mismatch impact: {mismatch_impact_percent}%")
     except Exception as e:
         import traceback
         error_msg = str(e)

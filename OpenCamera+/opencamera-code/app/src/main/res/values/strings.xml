@@ -39,6 +39,7 @@
     <string name="run_python_solve">Run solve</string>
     <string name="copy_python_log">Copy log</string>
     <string name="settings">Settings</string>
+    <string name="solver_settings">Solver Settings</string>
 
     <string name="app_name">Stargazer</string>
     <string name="app_subtitle">powered by OpenCamera and astrometry.net</string>
