@@ -70,7 +70,7 @@ jobs:
 
     - name: Decode keystore
       run: |
-        echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > OpenCamera+/opencamera-code/release.keystore
+        echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > OpenCamera+/opencamera-code/app/release.keystore
 
     - name: Build release APK
       run: |
