@@ -1,0 +1,79 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Grant execute permission to gradle
+      run: chmod +x OpenCamera+/opencamera-code/gradlew
+
+    - name: Build debug APK
+      run: |
+        cd OpenCamera+/opencamera-code
+        ./gradlew assembleDebug
+
+    - name: Build release APK
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        cd OpenCamera+/opencamera-code
+        ./gradlew assembleRelease
+      env:
+        KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    - name: Upload debug APK to artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-debug
+        path: OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
+
+    - name: Upload release APK to artifacts
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-release
+        path: OpenCamera+/opencamera-code/app/build/outputs/apk/release/app-release.apk
+
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          OpenCamera+/opencamera-code/app/build/outputs/apk/release/app-release.apk
+          OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Test build status
+      if: always()
+      run: |
+        if [ -f "OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk" ]; then
+          echo "✓ Debug APK built successfully"
+          ls -lh OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
+        else
+          echo "✗ Debug APK build failed"
+          exit 1
+        fi
