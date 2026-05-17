@@ -18,6 +18,10 @@ import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Preferences UI for plate solver configuration: IERS sync, calibration parameters, solver options.
+ * Handles manual IERS synchronization via background thread and Python interop.
+ */
 public class SolverPreferenceFragment extends PreferenceFragment {
     private static final String TAG = "SolverPreferenceFragment";
     private ConfigManager configManager;
@@ -31,11 +35,9 @@ public class SolverPreferenceFragment extends PreferenceFragment {
 
         super.onCreate(savedInstanceState);
 
-        // Load solver-only preferences
         addPreferencesFromResource(R.xml.preferences_solver);
         configManager = new ConfigManager(getActivity());
 
-        // Setup IERS sync button
         Preference syncButton = findPreference("preference_iers_sync_button");
         if (syncButton != null) {
             syncButton.setOnPreferenceClickListener(preference -> {
@@ -44,13 +46,15 @@ public class SolverPreferenceFragment extends PreferenceFragment {
             });
         }
 
-        // Update last sync display
         updateLastSyncDisplay();
 
         if (MyDebug.LOG)
             Log.d(TAG, "onCreate done");
     }
 
+    /**
+     * Update preference display with last successful IERS sync timestamp.
+     */
     private void updateLastSyncDisplay() {
         Preference lastSyncPref = findPreference("preference_iers_last_sync");
         String timestamp = configManager.getIersLastSyncTimestamp();
@@ -63,6 +67,10 @@ public class SolverPreferenceFragment extends PreferenceFragment {
         }
     }
 
+    /**
+     * Handle IERS sync button click: invoke Python tools.sync_iers_data() on background thread.
+     * Updates UI on main thread with success/failure result.
+     */
     private void handleIersSyncClick() {
         Log.d(TAG, "IERS sync button clicked");
 
@@ -72,12 +80,10 @@ public class SolverPreferenceFragment extends PreferenceFragment {
             syncButton.setEnabled(false);
         }
 
-        // Run sync on background thread
         executor.execute(() -> {
             try {
                 Log.d(TAG, "[IERS] Starting manual sync");
 
-                // Initialize Python if needed
                 if (!Python.isStarted()) {
                     Log.d(TAG, "[IERS] Starting Python runtime");
                     try {
@@ -91,13 +97,11 @@ public class SolverPreferenceFragment extends PreferenceFragment {
 
                 Python py = Python.getInstance();
 
-                // Get cache directory
                 File cacheDir = getActivity().getCacheDir();
                 File iersCacheDir = new File(cacheDir, "iers");
 
                 Log.d(TAG, "[IERS] Cache dir: " + iersCacheDir);
 
-                // Call Python sync function
                 PyObject tools = py.getModule("tools");
                 if (tools == null) {
                     mainHandler.post(() -> showSyncResult(false, "Failed to load tools module"));
@@ -142,6 +146,9 @@ public class SolverPreferenceFragment extends PreferenceFragment {
         });
     }
 
+    /**
+     * Display sync result (success or error message) as toast notification.
+     */
     private void showSyncResult(boolean success, String message) {
         String text = (success ? "✓ " : "✗ ") + message;
         Toast.makeText(getActivity(), text, Toast.LENGTH_LONG).show();

@@ -10,6 +10,10 @@ import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Manages persistent configuration: correction matrix bins, IERS sync timestamps, solver parameters.
+ * Uses SharedPreferences for storage (local) and app preferences for user-configurable settings.
+ */
 public class ConfigManager {
     private static final String PREFS_CONFIG = "stargazer_config";
     private static final String KEY_CORRECTION_MATRIX = "correction_matrix";
@@ -18,12 +22,19 @@ public class ConfigManager {
     private SharedPreferences appPrefs;
     private Context context;
 
+    /**
+     * Initialize ConfigManager with Android application context.
+     */
     public ConfigManager(Context context) {
         this.context = context;
         prefs = context.getSharedPreferences(PREFS_CONFIG, Context.MODE_PRIVATE);
         appPrefs = PreferenceManager.getDefaultSharedPreferences(context);
     }
 
+    /**
+     * Load all configuration (correction matrices, degree step, IERS cache directory).
+     * Returns JSONObject with keys: correction_matrix, degree_step, iers_cache_dir.
+     */
     public JSONObject getConfig() {
         JSONObject config = new JSONObject();
         try {
@@ -50,11 +61,13 @@ public class ConfigManager {
         return config;
     }
 
+    /**
+     * Persist configuration to SharedPreferences (correction matrix only; degree_step via app preferences).
+     */
     public void saveConfig(JSONObject config) {
         try {
             SharedPreferences.Editor editor = prefs.edit();
 
-            // Save correction matrix only (degree_step is managed by app preferences)
             JSONArray correctionMatrix = config.optJSONArray("correction_matrix");
             if (correctionMatrix != null) {
                 editor.putString(KEY_CORRECTION_MATRIX, correctionMatrix.toString());
@@ -67,14 +80,23 @@ public class ConfigManager {
         }
     }
 
+    /**
+     * Get last IERS data synchronization timestamp (ISO 8601 format or null if never synced).
+     */
     public String getIersLastSyncTimestamp() {
         return prefs.getString(KEY_IERS_LAST_SYNC, null);
     }
 
+    /**
+     * Record IERS data synchronization timestamp after successful sync.
+     */
     public void setIersLastSyncTimestamp(String timestamp) {
         prefs.edit().putString(KEY_IERS_LAST_SYNC, timestamp).apply();
     }
 
+    /**
+     * Get IERS auto-sync interval in hours from app preferences (default 168 = 1 week).
+     */
     public int getIersAutoSyncHours() {
         try {
             String val = appPrefs.getString("preference_iers_auto_sync_hours", "168");
@@ -84,6 +106,9 @@ public class ConfigManager {
         }
     }
 
+    /**
+     * Clear all stored configuration.
+     */
     public void clear() {
         prefs.edit().clear().apply();
     }

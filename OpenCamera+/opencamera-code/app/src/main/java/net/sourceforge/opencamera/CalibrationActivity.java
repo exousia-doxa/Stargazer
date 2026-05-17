@@ -31,6 +31,10 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Calibration UI activity: select photos with metadata, compute correction matrices via Python,
+ * aggregate into global correction bins by zenith offset, display results and statistics.
+ */
 public class CalibrationActivity extends AppCompatActivity {
     private static final String TAG = "CalibrationActivity";
     private static final int REQUEST_SELECT_PHOTOS = 200;
@@ -56,11 +60,13 @@ public class CalibrationActivity extends AppCompatActivity {
         selectPhotosButton.setOnClickListener(v -> selectPhotos());
         regenerateButton.setOnClickListener(v -> regenerateGlobalCalibration());
 
-        // Show current calibrations on launch
         displayGlobalCalibrations();
         updateStatusDisplay();
     }
 
+    /**
+     * Open image picker to select calibration photos from device storage.
+     */
     private void selectPhotos() {
         Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
@@ -97,6 +103,9 @@ public class CalibrationActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Extract real filesystem path from content URI (handles SAF and MediaStore URIs).
+     */
     private String getRealPathFromUri(Uri uri) {
         String filePath = null;
         if ("file".equals(uri.getScheme())) {
@@ -118,6 +127,9 @@ public class CalibrationActivity extends AppCompatActivity {
         return filePath;
     }
 
+    /**
+     * Read metadata from JSON sidecar file (legacy format fallback if not in EXIF).
+     */
     private String readMetadataSidecar(String originalPath) {
         try {
             File imageFile = new File(originalPath);
@@ -144,6 +156,9 @@ public class CalibrationActivity extends AppCompatActivity {
         return null;
     }
 
+    /**
+     * Process selected photo: extract metadata from EXIF, add to UI table.
+     */
     private void processPhotoUri(Uri uri) throws IOException {
         File tempFile = new File(getCacheDir(), "temp_calib_" + System.currentTimeMillis() + ".jpg");
         try (InputStream in = getContentResolver().openInputStream(uri);
@@ -218,6 +233,9 @@ public class CalibrationActivity extends AppCompatActivity {
         selectedPhotos.add(info);
     }
 
+    /**
+     * Update status text with selected photo count and calibration summary.
+     */
     private void updateStatusDisplay() {
         calibrationListTable.removeAllViews();
         statusTextView.setText("Photos: " + selectedPhotos.size() + " selected");
@@ -236,6 +254,9 @@ public class CalibrationActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Add photo metadata row to calibration list table.
+     */
     private void addPhotoRow(CalibrationPhotoInfo photo) {
         TableRow row = new TableRow(this);
 
@@ -261,6 +282,9 @@ public class CalibrationActivity extends AppCompatActivity {
         calibrationListTable.addView(row);
     }
 
+    /**
+     * Load and display current global correction matrix bins from configuration.
+     */
     private void displayGlobalCalibrations() {
         globalCalibrationsTable.removeAllViews();
         ConfigManager configMgr = new ConfigManager(this);
@@ -300,6 +324,9 @@ public class CalibrationActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Add calibration summary row (bin range + quality) to global calibrations table.
+     */
     private void addCalibrationRow(String label, String value) {
         TableRow row = new TableRow(this);
 
@@ -320,6 +347,10 @@ public class CalibrationActivity extends AppCompatActivity {
         globalCalibrationsTable.addView(row);
     }
 
+    /**
+     * Invoke Python calibrate_correction() on selected photos to compute global correction matrix bins.
+     * Updates configuration and UI display on completion.
+     */
     private void regenerateGlobalCalibration() {
         new Thread(() -> {
             try {

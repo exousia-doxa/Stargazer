@@ -35,11 +35,9 @@ class DualWriter:
         self.log_file.close()
 
 
-# PhotoMeta: a clear, explicit representation of all photo metadata fields.
-# Inputs: fields extracted from embedded image metadata (ICRS, camera, orientation, etc.)
-# Output: dataclass instance with typed attributes for downstream processing.
 @dataclass
 class PhotoMeta:
+    """Photo metadata container holding all inputs (ICRS, camera, orientation) and solve outputs."""
     linked_image: str
     plate_solve_arguments: list
     photo_full_resolution: tuple
@@ -216,6 +214,7 @@ def parse_metadata_delimited(delimited_str):
 # Input: path to JSON file (string or Path)
 # Output: Python dict (empty dict if file missing)
 def load_config(path):
+    """Load JSON configuration from file, return empty dict if not found."""
     if isinstance(path, str):
         path = Path(path)
     if not path.exists():
@@ -225,10 +224,8 @@ def load_config(path):
         return json.load(fh)
 
 
-# save_config: write dict to JSON file
-# Input: path (string or Path) and data dict
-# Output: path
 def save_config(path, data):
+    """Write configuration dict to JSON file."""
     if isinstance(path, str):
         path = Path(path)
     with path.open("w", encoding="utf-8") as fh:
@@ -236,9 +233,6 @@ def save_config(path, data):
     return path
 
 
-# set_meta_scheme: embed a metadata dict into an image's EXIF UserComment
-# Input: image path and explicit metadata fields (see PhotoMeta)
-# Output: True on success, False on error (prints message)
 def set_meta_scheme(image_path,
                     linked_image=None,
                     plate_solve_arguments=None,
@@ -254,6 +248,7 @@ def set_meta_scheme(image_path,
                     photo_icrs=None,
                     calibration_quality_score=None,
                     observed_zenith_offset=None):
+    """Embed photo metadata (correction matrix, location, camera, orientation) in image EXIF UserComment."""
     try:
         img_path = Path(image_path)
         if not img_path.exists():
@@ -306,8 +301,8 @@ def set_meta_scheme(image_path,
 
 # get_meta_scheme: extract and normalize embedded metadata from an image
 # Input: image path
-# Output: PhotoMeta instance or None
 def get_meta_scheme(image_path):
+    """Extract photo metadata from image EXIF UserComment (supports both JSON legacy and delimited META formats)."""
     try:
         img_path = Path(image_path)
         if not img_path.exists():
@@ -402,10 +397,8 @@ def get_meta_scheme(image_path):
         return None
 
 
-# get_meta_scheme_json: wrapper to return metadata as JSON string
-# Input: image path
-# Output: JSON string or empty object
 def get_meta_scheme_json(image_path):
+    """Extract photo metadata from image EXIF and return as JSON string."""
     meta = get_meta_scheme(image_path)
     if meta is None:
         return json.dumps({})

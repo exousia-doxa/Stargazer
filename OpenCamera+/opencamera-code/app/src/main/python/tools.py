@@ -248,7 +248,6 @@ def read_iers_sync_metadata(cache_dir: str) -> dict:
 
 ### LEGACY
 
-# It computes approximate location (latitude, longitude) from given ICRS coordinates and observation time
 def find_location_via_icrs(
         ra_deg: float,
         dec_deg: float,
@@ -256,6 +255,7 @@ def find_location_via_icrs(
         init_guess=(0.0, 0.0),
         step_deg: float = 0.1,
         precision_deg: float = 1e-4):
+    """Estimate Earth location (latitude, longitude) from sky coordinates at observation time via grid search."""
     target_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
     best_lat, best_lon = float(init_guess[0]), float(init_guess[1])
     best_sep_deg = float('inf')
@@ -284,23 +284,23 @@ def find_location_via_icrs(
 
     return [round(float(best_lat), 4), round(float(best_lon), 4)]
 
-# It computes ICRS coordinates from given location and observation time
 def find_icrs_via_location(obs_time, lat_deg: float, lon_deg: float):
+    """Compute ICRS sky coordinates of zenith (alt=90°, az=0°) at Earth location and observation time."""
     location = EarthLocation(lat=lat_deg * u.deg, lon=lon_deg * u.deg, height=0 * u.m)
     point_altaz = SkyCoord(alt=90 * u.deg, az=0 * u.deg, frame=AltAz(obstime=Time(obs_time, scale='utc'), location=location))
     point_icrs = point_altaz.transform_to('icrs')
 
     return [float(point_icrs.ra.to(u.deg).value), float(point_icrs.dec.to(u.deg).value)]
 
-# It computes ICRS coordinates from given pixel coordinates using WCS file
 def find_icrs_via_xy(wcs_filename, point_xy):
+    """Convert pixel coordinates to ICRS (J2000) sky coordinates using linear WCS (no SIP distortion)."""
     with fits.open(wcs_filename) as hdulist:
         w = wcs.WCS(hdulist[0].header)
 
     return [float(w.wcs_pix2world(np.array([point_xy], dtype=np.float64), 0)[0][0]), float(w.wcs_pix2world(np.array([point_xy], dtype=np.float64), 0)[0][1])]
 
-# Check if WCS header contains SIP distortion coefficients
 def check_wcs_has_sip(wcs_filename):
+    """Check if WCS header contains SIP polynomial distortion coefficients."""
     try:
         with fits.open(wcs_filename) as hdulist:
             w = wcs.WCS(hdulist[0].header)
@@ -308,24 +308,22 @@ def check_wcs_has_sip(wcs_filename):
     except Exception:
         return False
 
-# It computes pixel coordinates from given ICRS coordinates using WCS file
-# Returns DISTORTED pixels (accounts for SIP if present) — for image display/drawing
 def find_xy_via_icrs(wcs_filename, point_icrs):
+    """Convert ICRS sky coordinates to distorted image pixel coordinates (includes SIP if present)."""
     with fits.open(wcs_filename) as hdulist:
         w = wcs.WCS(hdulist[0].header)
 
     return w.all_world2pix(np.array([point_icrs], dtype=np.float64), 0)[0]
 
-# It computes UNDISTORTED pixel coordinates from given ICRS coordinates using WCS file
-# Uses linear WCS only (no SIP) — for ray-based computations in camera frame
 def find_xy_via_icrs_linear(wcs_filename, point_icrs):
+    """Convert ICRS sky coordinates to undistorted (linear WCS only) image pixels for ray computations."""
     with fits.open(wcs_filename) as hdulist:
         w = wcs.WCS(hdulist[0].header)
 
     return w.wcs_world2pix(np.array([point_icrs], dtype=np.float64), 0)[0]
 
-# It computes pixel coordinates of given point via orientation vector
 def find_xy_via_orientation(camera_res, sensor_size, focal_length, image_res, vector):
+    """Project 3D orientation vector to image pixel coordinates using pinhole camera model."""
     camera_res = np.asarray(camera_res, dtype=np.float64)
     sensor_size = np.asarray(sensor_size, dtype=np.float64)
     focal_length = float(focal_length)
@@ -349,9 +347,8 @@ def find_xy_via_orientation(camera_res, sensor_size, focal_length, image_res, ve
 
     return [float(x_px), float(y_px)]
 
-### SUSPICIOUS AISLOP
-
 def pixel_to_ray(px, py, camera_data):
+    """Convert pixel coordinates to 3D ray direction in camera frame using pinhole projection model."""
     cam0 = np.asarray(camera_data[0], dtype=np.float64)   # [w_px, h_px]
     cam1 = np.asarray(camera_data[1], dtype=np.float64)   # [w_mm, h_mm]
     f = float(camera_data[2])                             # mm
@@ -369,6 +366,7 @@ def pixel_to_ray(px, py, camera_data):
     return ray / np.linalg.norm(ray)
 
 def rotation_from_vectors(v1, v2):
+    """Compute 3×3 rotation matrix mapping v1 → v2 using Rodriguez formula."""
     v1 = v1 / np.linalg.norm(v1)
     v2 = v2 / np.linalg.norm(v2)
 
@@ -390,7 +388,8 @@ def rotation_from_vectors(v1, v2):
     R = np.eye(3) + K * sin_a + K @ K * (1 - cos_a)
     return R
 
-def rotmat_to_quat(R):
+def rotation_matrix_to_quaternion(R):
+    """Convert 3×3 rotation matrix to unit quaternion [w, x, y, z]."""
     w = np.sqrt(1.0 + np.trace(R)) / 2.0
     x = (R[2,1] - R[1,2]) / (4*w)
     y = (R[0,2] - R[2,0]) / (4*w)
@@ -399,6 +398,7 @@ def rotmat_to_quat(R):
     return q / np.linalg.norm(q)
 
 def rotation_angle(R):
+    """Compute rotation angle (radians) from 3×3 rotation matrix trace."""
     cos_a = (np.trace(R) - 1) / 2
     cos_a = np.clip(cos_a, -1.0, 1.0)
     return np.arccos(cos_a)
@@ -435,6 +435,7 @@ def pixel_angle_deg_from_center(point_xy, camera_data):
     return float(np.degrees(theta_rad))
 
 def average_quaternions(quats, weights=None):
+    """Compute weighted geodesic mean of quaternions using eigenvalue decomposition on SO(3) manifold."""
     if weights is None:
         weights = np.ones(len(quats))
 
@@ -447,7 +448,8 @@ def average_quaternions(quats, weights=None):
     q_avg = eigvecs[:, np.argmax(eigvals)]
     return q_avg / np.linalg.norm(q_avg)
 
-def quat_to_rotmat(q):
+def quaternion_to_rotation_matrix(q):
+    """Convert unit quaternion [w, x, y, z] to 3×3 rotation matrix."""
     w, x, y, z = q
     return np.array([
         [1 - 2*(y*y + z*z), 2*(x*y - z*w),     2*(x*z + y*w)],
@@ -478,16 +480,13 @@ def combine_rotation_corrections(
         if angle > max_angle_deg:
             continue
 
-        q = rotmat_to_quat(R)
+        q = rotation_matrix_to_quaternion(R)
         quats.append(q)
 
-        # Weight by angle (smaller = higher weight) + quality score (if available)
         angle_weight = 1.0 / (1e-6 + angle**2)
 
         if quality_scores is not None and i < len(quality_scores):
-            # Quality score 0-100 → normalize to 0-1 weight
             quality_weight = max(0, min(100, quality_scores[i])) / 100.0
-            # Combine: 70% angle, 30% quality
             combined_weight = 0.7 * angle_weight + 0.3 * quality_weight
         else:
             combined_weight = angle_weight
@@ -498,11 +497,12 @@ def combine_rotation_corrections(
         return np.eye(3)
 
     q_avg = average_quaternions(quats, weights)
-    return quat_to_rotmat(q_avg)
+    return quaternion_to_rotation_matrix(q_avg)
 
 from PIL import Image, ImageDraw
 
 def drawing(arguments, zenith_photo_coordinates, coefficient_location):
+    """Draw overlay lines on image: IMU zenith → GPS zenith → center, mark each point with colored square."""
     try:
         linked = arguments.get("linked_image")
         if linked is None:
