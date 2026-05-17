@@ -84,6 +84,61 @@
             android:summary="@string/preference_calibration_location_enabled_summary"
             android:defaultValue="true" />
 
+        <SwitchPreference
+            android:key="preference_local_calibration_capture"
+            android:title="@string/preference_local_calibration_capture"
+            android:summary="@string/preference_local_calibration_capture_summary"
+            android:defaultValue="false" />
+
+        <SwitchPreference
+            android:key="preference_global_calibration_apply"
+            android:title="@string/preference_global_calibration_apply"
+            android:summary="@string/preference_global_calibration_apply_summary"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="preference_category_calibration_quality"
+        android:title="@string/preference_category_calibration_quality">
+
+        <SwitchPreference
+            android:key="preference_calibration_auto_decline_enabled"
+            android:title="@string/preference_calibration_auto_decline_enabled"
+            android:summary="@string/preference_calibration_auto_decline_enabled_summary"
+            android:defaultValue="false" />
+
+        <EditTextPreference
+            android:key="preference_calibration_max_zenith_offset"
+            android:title="@string/preference_calibration_max_zenith_offset"
+            android:summary="@string/preference_calibration_max_zenith_offset_summary"
+            android:defaultValue="30"
+            android:inputType="numberDecimal"
+            android:dependency="preference_calibration_auto_decline_enabled" />
+
+        <EditTextPreference
+            android:key="preference_calibration_max_location_error"
+            android:title="@string/preference_calibration_max_location_error"
+            android:summary="@string/preference_calibration_max_location_error_summary"
+            android:defaultValue="5"
+            android:inputType="numberDecimal"
+            android:dependency="preference_calibration_auto_decline_enabled" />
+
+        <EditTextPreference
+            android:key="preference_calibration_min_quality_score"
+            android:title="@string/preference_calibration_min_quality_score"
+            android:summary="@string/preference_calibration_min_quality_score_summary"
+            android:defaultValue="60"
+            android:inputType="number"
+            android:dependency="preference_calibration_auto_decline_enabled" />
+
+        <EditTextPreference
+            android:key="preference_calibration_degree_step"
+            android:title="@string/preference_calibration_degree_step"
+            android:summary="@string/preference_calibration_degree_step_summary"
+            android:defaultValue="5.0"
+            android:inputType="numberDecimal" />
+
     </PreferenceCategory>
 
 </PreferenceScreen>

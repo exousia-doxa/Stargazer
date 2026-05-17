@@ -35,6 +35,24 @@
     <string name="preference_calibration_location_enabled">Store device location in image</string>
     <string name="preference_calibration_location_enabled_summary">If enabled, save device GPS location to image EXIF. If disabled, location data is excluded.</string>
 
+    <string name="preference_local_calibration_capture">Capture local calibration matrix</string>
+    <string name="preference_local_calibration_capture_summary">Compute and save per-photo IMU correction matrix to image EXIF based on GPS location. Required to build global calibration later.</string>
+
+    <string name="preference_global_calibration_apply">Apply global calibration</string>
+    <string name="preference_global_calibration_apply_summary">Use aggregated global correction matrix during solving if available. Improves accuracy when solving with consistent device orientation.</string>
+
+    <string name="preference_category_calibration_quality">Calibration Quality Control</string>
+    <string name="preference_calibration_auto_decline_enabled">Auto-decline poor calibrations</string>
+    <string name="preference_calibration_auto_decline_enabled_summary">Automatically decline calibrations that fail quality thresholds.</string>
+    <string name="preference_calibration_max_zenith_offset">Max zenith offset (°)</string>
+    <string name="preference_calibration_max_zenith_offset_summary">Decline if zenith is > this many degrees from image center. Default 30° provides good precision; lower = stricter.</string>
+    <string name="preference_calibration_max_location_error">Max location error (km)</string>
+    <string name="preference_calibration_max_location_error_summary">Decline if computed location differs from GPS by > this distance. Default 5 km; lower = stricter.</string>
+    <string name="preference_calibration_min_quality_score">Min quality score (0-100)</string>
+    <string name="preference_calibration_min_quality_score_summary">Decline if overall quality score is below this threshold. 60 = balanced; higher = stricter.</string>
+    <string name="preference_calibration_degree_step">Calibration degree step (°)</string>
+    <string name="preference_calibration_degree_step_summary">Bin width for global calibration matrices. Default 5° = bins every 5 degrees of zenith offset. Lower = finer granularity but fewer photos per bin.</string>
+
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="run_python_solve">Run solve</string>
     <string name="copy_python_log">Copy log</string>
@@ -45,6 +63,12 @@
     <string name="app_subtitle">powered by OpenCamera and astrometry.net</string>
     <string name="capture_photo">Capture Photo</string>
     <string name="choose_from_gallery">Choose from Gallery</string>
+
+    <string name="calibration_management">Calibration Manager</string>
+    <string name="calibration_management_subtitle">Batch view and manage calibration data</string>
+    <string name="calibration_mgr_short">Calib Manager</string>
+    <string name="select_photos">Select Photos</string>
+    <string name="regenerate_calib">Regenerate Calib</string>
     <string name="action_settings">Settings</string>
     <string name="action_popup">Popup settings</string>
     <string name="intro_ok">OK (This message won\'t show again)</string>

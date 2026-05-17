@@ -4451,12 +4451,9 @@ public class ImageSaver extends Thread {
             if( geo_angle < 0.0f ) {
                 geo_angle += 360.0f;
             }
-            String encoding = "ASCII\0\0\0";
-            // fine to ignore request.remove_device_exif, as this is a separate user option
-            //exif.setAttribute(ExifInterface.TAG_USER_COMMENT,"Yaw:" + geo_angle + ",Pitch:" + pitch_angle + ",Roll:" + level_angle);
-            exif.setAttribute(ExifInterface.TAG_USER_COMMENT,encoding + "Yaw:" + geo_angle + ",Pitch:" + pitch_angle + ",Roll:" + level_angle);
-            if( MyDebug.LOG )
-                Log.d(TAG, "UserComment: " + exif.getAttribute(ExifInterface.TAG_USER_COMMENT));
+            // Note: USER_COMMENT is now used for structured photo metadata (delimited format)
+            // written by MainActivity/StargazerActivity. Orientation angles are included in that format.
+            // Do not write old-format orientation data here to avoid conflicts.
         }
         // Add stargazer plate-solve metadata (camera intrinsics and app info)
         addStargazerMetadataExif(exif, focal_length, sensor_width, sensor_height);

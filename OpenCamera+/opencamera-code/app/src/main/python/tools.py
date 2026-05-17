@@ -202,12 +202,20 @@ def quat_to_rotmat(q):
 
 def combine_rotation_corrections(
     R_list,
+    quality_scores=None,
     max_angle_deg=30
 ):
+    """Combine rotation corrections using quaternion geodesic mean.
+
+    Args:
+        R_list: List of 3x3 rotation matrices
+        quality_scores: Optional list of quality scores (0-100) corresponding to each matrix
+        max_angle_deg: Reject corrections with angle > this threshold
+    """
     quats = []
     weights = []
 
-    for R in R_list:
+    for i, R in enumerate(R_list):
         angle = np.degrees(rotation_angle(R))
 
         # Reject outliers
@@ -217,8 +225,18 @@ def combine_rotation_corrections(
         q = rotmat_to_quat(R)
         quats.append(q)
 
-        # Weight smaller corrections higher
-        weights.append(1.0 / (1e-6 + angle**2))
+        # Weight by angle (smaller = higher weight) + quality score (if available)
+        angle_weight = 1.0 / (1e-6 + angle**2)
+
+        if quality_scores is not None and i < len(quality_scores):
+            # Quality score 0-100 → normalize to 0-1 weight
+            quality_weight = max(0, min(100, quality_scores[i])) / 100.0
+            # Combine: 70% angle, 30% quality
+            combined_weight = 0.7 * angle_weight + 0.3 * quality_weight
+        else:
+            combined_weight = angle_weight
+
+        weights.append(combined_weight)
 
     if len(quats) == 0:
         return np.eye(3)

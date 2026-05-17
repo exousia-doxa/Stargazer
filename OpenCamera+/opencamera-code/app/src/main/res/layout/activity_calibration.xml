@@ -22,7 +22,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/app_name"
+            android:text="@string/calibration_management"
             android:textSize="28sp"
             android:textStyle="bold"
             android:gravity="center"
@@ -33,14 +33,13 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/app_subtitle"
+            android:text="@string/calibration_management_subtitle"
             android:textSize="12sp"
             android:gravity="center"
             android:textColor="#b3b3b3"
             android:layout_marginBottom="24dp" />
 
-
-        <!-- Metadata Section -->
+        <!-- Status Section -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -55,14 +54,46 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Photo Information"
+                android:text="Status"
+                android:textStyle="bold"
+                android:textSize="16sp"
+                android:textColor="#bb86fc"
+                android:layout_marginBottom="12dp" />
+
+            <TextView
+                android:id="@+id/calibration_status_textview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:padding="12dp"
+                android:textSize="13sp"
+                android:textColor="#00e676" />
+
+        </LinearLayout>
+
+        <!-- Calibration List Section -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="#1e1e1e"
+            android:padding="16dp"
+            android:layout_marginBottom="16dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginEnd="12dp"
+            android:layout_marginTop="0dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Selected Photos"
                 android:textStyle="bold"
                 android:textSize="16sp"
                 android:textColor="#bb86fc"
                 android:layout_marginBottom="12dp" />
 
             <TableLayout
-                android:id="@+id/photo_info_table"
+                android:id="@+id/calibration_list_table"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="#2c2c2c"
@@ -71,7 +102,7 @@
 
         </LinearLayout>
 
-        <!-- Console Section -->
+        <!-- Global Calibrations Section -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -86,56 +117,14 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Log"
-                android:textStyle="bold"
-                android:textSize="16sp"
-                android:textColor="#bb86fc"
-                android:layout_marginBottom="12dp" />
-
-            <ScrollView
-                android:layout_width="match_parent"
-                android:layout_height="240dp"
-                android:background="#0d0d0d"
-                android:scrollbars="vertical"
-                android:scrollbarStyle="insideOverlay">
-
-                <TextView
-                    android:id="@+id/console_textview"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="monospace"
-                    android:padding="12dp"
-                    android:textSize="12sp"
-                    android:textColor="#00e676"
-                    android:textIsSelectable="true" />
-
-            </ScrollView>
-
-        </LinearLayout>
-
-        <!-- Solver Results Section -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="#1e1e1e"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp"
-            android:layout_marginTop="0dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Solver Results"
+                android:text="Global Calibrations"
                 android:textStyle="bold"
                 android:textSize="16sp"
                 android:textColor="#bb86fc"
                 android:layout_marginBottom="12dp" />
 
             <TableLayout
-                android:id="@+id/solver_results_table"
+                android:id="@+id/global_calibrations_table"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="#2c2c2c"
@@ -160,26 +149,12 @@
         android:gravity="bottom">
 
         <Button
-            android:id="@+id/run_solve_button"
+            android:id="@+id/select_photos_button"
             android:layout_width="0dp"
             android:layout_height="56dp"
             android:layout_weight="1"
-            android:text="@string/run_python_solve"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="@android:color/white"
-            android:background="@drawable/button_solve"
-            android:enabled="false"
-            android:stateListAnimator="@null"
-            android:elevation="4dp" />
-
-        <Button
-            android:id="@+id/calibration_button"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_weight="1"
-            android:text="@string/calibration_mgr_short"
-            android:textSize="12sp"
+            android:text="@string/select_photos"
+            android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@android:color/white"
             android:background="@drawable/button_secondary"
@@ -187,56 +162,16 @@
             android:elevation="4dp" />
 
         <Button
-            android:id="@+id/settings_button"
+            android:id="@+id/regenerate_button"
             android:layout_width="0dp"
             android:layout_height="56dp"
             android:layout_weight="1"
-            android:text="@string/solver_settings"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="@android:color/white"
-            android:background="@drawable/button_secondary"
-            android:stateListAnimator="@null"
-            android:elevation="4dp" />
-
-    </LinearLayout>
-
-    <!-- Capture Buttons (Fixed at bottom) -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:spacing="8dp"
-        android:padding="16dp"
-        android:paddingTop="0dp"
-        android:paddingBottom="16dp"
-        android:background="#121212"
-        android:gravity="bottom"
-        android:fitsSystemWindows="true">
-
-        <Button
-            android:id="@+id/capture_button"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_weight="1"
-            android:text="@string/capture_photo"
+            android:text="@string/regenerate_calib"
             android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@android:color/white"
             android:background="@drawable/button_primary"
-            android:stateListAnimator="@null"
-            android:elevation="4dp" />
-
-        <Button
-            android:id="@+id/gallery_button"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:layout_weight="1"
-            android:text="@string/choose_from_gallery"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:textColor="@android:color/white"
-            android:background="@drawable/button_secondary"
+            android:enabled="false"
             android:stateListAnimator="@null"
             android:elevation="4dp" />
 

@@ -526,9 +526,15 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
                     try {
                         Log.d(TAG, "Writing EXIF to: " + imagePath + " (retry " + retryCount + ")");
                         ExifInterface imageExif = new ExifInterface(imagePath);
-                        imageExif.setAttribute(ExifInterface.TAG_USER_COMMENT, jsonString);
-                        imageExif.saveAttributes();
-                        Log.d(TAG, "Embedded metadata in image EXIF, JSON length: " + jsonString.length());
+                        // Format metadata as delimited string (no calibration yet, zeros for matrix/degree)
+                        String metadataString = MetadataFormatter.formatMetadata(jsonString, null);
+                        if (metadataString != null) {
+                            imageExif.setAttribute(ExifInterface.TAG_USER_COMMENT, metadataString);
+                            imageExif.saveAttributes();
+                            Log.d(TAG, "Embedded metadata in image EXIF, formatted length: " + metadataString.length());
+                        } else {
+                            Log.e(TAG, "Failed to format metadata for EXIF - not writing");
+                        }
                     } catch (IOException e) {
                         Log.e(TAG, "Failed to write metadata to image EXIF: " + e.getMessage());
                     }
