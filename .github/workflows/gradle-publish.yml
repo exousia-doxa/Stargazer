@@ -10,8 +10,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-debug:
     runs-on: ubuntu-latest
+    name: Build Debug APK
 
     steps:
     - name: Checkout code
@@ -37,13 +38,41 @@ jobs:
         cd OpenCamera+/opencamera-code
         ./gradlew assembleDebug
 
+    - name: Upload debug APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug
+        path: OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
+
+  build-release:
+    runs-on: ubuntu-latest
+    name: Build Release APK
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Grant execute permission to Gradle
+      run: chmod +x OpenCamera+/opencamera-code/gradlew
+
     - name: Decode keystore
-      if: startsWith(github.ref, 'refs/tags/v')
       run: |
         echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > OpenCamera+/opencamera-code/release.keystore
 
     - name: Build release APK
-      if: startsWith(github.ref, 'refs/tags/v')
       run: |
         cd OpenCamera+/opencamera-code
         ./gradlew assembleRelease
@@ -53,21 +82,13 @@ jobs:
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-    - name: Upload debug APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug
-        path: OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
-
     - name: Upload release APK
-      if: startsWith(github.ref, 'refs/tags/v')
       uses: actions/upload-artifact@v4
       with:
         name: app-release
         path: OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk
 
     - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v1
       with:
         files: |
@@ -75,14 +96,3 @@ jobs:
         generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Check build status
-      if: always()
-      run: |
-        if [ -f "OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk" ]; then
-          echo "✓ Release APK built successfully"
-          ls -lh OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk
-        else
-          echo "✗ Release APK build failed"
-          exit 1
-        fi
