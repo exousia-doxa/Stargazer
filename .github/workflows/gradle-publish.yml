@@ -30,7 +30,12 @@ jobs:
         python-version: '3.13'
 
     - name: Grant execute permission to Gradle
-      run: chmod +x OpenCamera+/opencamera-code/gradlewS
+      run: chmod +x OpenCamera+/opencamera-code/gradlew
+
+    - name: Decode keystore
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > OpenCamera+/opencamera-code/release.keystore
 
     - name: Build release APK
       if: startsWith(github.ref, 'refs/tags/v')
@@ -38,7 +43,7 @@ jobs:
         cd OpenCamera+/opencamera-code
         ./gradlew assembleRelease
       env:
-        KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+        KEYSTORE_FILE: release.keystore
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
