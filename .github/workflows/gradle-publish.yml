@@ -17,25 +17,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Set up JDK 17
+    - name: Set up JDK
       uses: actions/setup-java@v3
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: gradle
 
-    - name: Set up Python 3.13
+    - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.13'
 
-    - name: Grant execute permission to gradle
-      run: chmod +x OpenCamera+/opencamera-code/gradlew
-
-    - name: Build debug APK
-      run: |
-        cd OpenCamera+/opencamera-code
-        ./gradlew assembleDebug
+    - name: Grant execute permission to Gradle
+      run: chmod +x OpenCamera+/opencamera-code/gradlewS
 
     - name: Build release APK
       if: startsWith(github.ref, 'refs/tags/v')
@@ -48,7 +43,7 @@ jobs:
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-    - name: Upload release APK to artifacts
+    - name: Upload release APK
       if: startsWith(github.ref, 'refs/tags/v')
       uses: actions/upload-artifact@v4
       with:
@@ -65,7 +60,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Test build status
+    - name: Check build status
       if: always()
       run: |
         if [ -f "OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk" ]; then
