@@ -425,6 +425,18 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
     start_time = time.time()
     print(f"DEBUG SOLVE_START: local_set={is_imu_correction_local_set}, global_get={is_imu_correction_get}, calibrating={is_calibrating}")
     print(f"DEBUG: Config has {len(arguments_c.get('correction_matrix', []))} bins")
+
+    # Load IERS cache if available
+    iers_cache_dir = arguments_c.get('iers_cache_dir')
+    if iers_cache_dir:
+        iers_load_result = tools.load_iers_from_cache(iers_cache_dir)
+        if iers_load_result['success']:
+            print(f"[IERS] Using cached IERS data")
+        else:
+            print(f"[IERS] Cache unavailable: {iers_load_result['message']}")
+    else:
+        print(f"[IERS] No cache dir configured, astropy will use fallback IERS-B")
+
     sys.stdout.flush()
     results = {
         'file': meta.linked_image,
@@ -542,11 +554,11 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         # compute ICRS coordinates via WCS
         print(f"DEBUG: Computing ICRS via WCS: {wcs_fits}")
         obs_zenith_icrs = tools.find_icrs_via_xy(wcs_fits, obs_zenith_xy)
-        print(f"DEBUG: Obs zenith ICRS: {obs_zenith_icrs}")
-        obs_epoch = Time(Time(observation_timestamp, scale='utc').to_value('decimalyear'), format='jyear')
-        source = SkyCoord(ra=obs_zenith_icrs[0] * u.deg, dec=obs_zenith_icrs[1] * u.deg, frame=FK5(equinox=obs_epoch))
-        result = source.transform_to(FK5(equinox=Time(2000.0, format='jyear')))
-        obs_zenith_icrs_j2000 = [float(result.ra.deg), float(result.dec.deg)]
+        print(f"DEBUG: Obs zenith from WCS (already J2000): {obs_zenith_icrs}")
+        # WCS from astrometry.net is already FK5 J2000.0 epoch
+        # Use coordinates directly without epoch conversion
+        # (Epoch conversion was causing westward shift from negative precession)
+        obs_zenith_icrs_j2000 = obs_zenith_icrs
 
         # location initial guess: use embedded photo_icrs if available, otherwise compute
         loc_best_guess = None

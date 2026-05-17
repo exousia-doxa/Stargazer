@@ -1148,6 +1148,14 @@
     <string name="preference_licence_online" translatable="false">Online licences</string>
     <string name="preference_licence_online_text" translatable="false">Please tap here for full online licensing information (opens in your browser).</string>
 
+    <!-- IERS Earth Orientation Data -->
+    <string name="preference_category_iers_data">Earth Orientation Data (IERS)</string>
+    <string name="preference_iers_sync_button">Sync IERS data</string>
+    <string name="preference_iers_sync_button_summary">Download latest Earth orientation data from IERS for accurate location calculations</string>
+    <string name="preference_iers_last_sync">Last sync</string>
+    <string name="preference_iers_last_sync_default">Never synced</string>
+    <string name="preference_iers_auto_sync_hours">Auto-sync interval</string>
+
     <!-- There's no point translating the What's New text (and shouldn't be included in language-specific strings.xml) - it'll be updated constantly, and change each version -->
     <string name="whats_new_text" translatable="false">
         <small>[This dialog is shown when Open Camera is updated. You can disable it under

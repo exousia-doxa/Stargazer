@@ -1929,6 +1929,9 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
         super.onResume();
         this.app_is_paused = false; // must be set before initLocation() at least
 
+        // Check if IERS auto-sync is needed (background thread, non-blocking)
+        checkAndAutoSyncIersIfNeeded();
+
         // this is intentionally true, not false, as the uncovering happens in DrawPreview when we receive frames from the camera after it\'s opened
         // (this should already have been set from the call in onPause(), but we set it here again just in case)\n
         applicationInterface.getDrawPreview().setCoverPreview(true);
@@ -2100,6 +2103,86 @@ public class MainActivity extends AppCompatActivity implements PreferenceFragmen
             initImmersiveMode();
         }
     }
+
+    private void checkAndAutoSyncIersIfNeeded() {
+        try {
+            // Initialize Python if needed
+            if (!Python.isStarted()) {
+                if (MyDebug.LOG) Log.d(TAG, "[IERS] Starting Python runtime for auto-sync");
+                try {
+                    Python.start(new AndroidPlatform(this));
+                } catch (Exception e) {
+                    if (MyDebug.LOG) Log.w(TAG, "[IERS] Failed to start Python: " + e.getMessage());
+                    return;
+                }
+            }
+
+            ConfigManager config = new ConfigManager(this);
+            String lastSync = config.getIersLastSyncTimestamp();
+            int hourInterval = config.getIersAutoSyncHours();
+
+            if (MyDebug.LOG) Log.d(TAG, "[IERS] Checking auto-sync: lastSync=" + lastSync + ", interval=" + hourInterval + "h");
+
+            Python py = Python.getInstance();
+            PyObject tools = py.getModule("tools");
+
+            // Check if sync needed
+            PyObject needsSyncResult = tools.callAttr("iers_needs_sync", lastSync, hourInterval);
+            boolean needsSync = needsSyncResult.toBoolean();
+
+            if (!needsSync) {
+                if (MyDebug.LOG) Log.d(TAG, "[IERS] Cache fresh, skipping auto-sync");
+                return;
+            }
+
+            if (MyDebug.LOG) Log.d(TAG, "[IERS] Auto-sync needed, starting background sync");
+
+            // Run sync on background thread, non-blocking
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            executor.execute(() -> {
+                try {
+                    File cacheDir = getCacheDir();
+                    File iersCacheDir = new File(cacheDir, "iers");
+
+                    Log.d(TAG, "[IERS] Starting auto-sync to " + iersCacheDir);
+                    Python py2 = Python.getInstance();
+                    PyObject tools2 = py2.getModule("tools");
+                    if (tools2 == null) {
+                        Log.w(TAG, "[IERS] Failed to load tools module");
+                        return;
+                    }
+
+                    PyObject syncResult = tools2.callAttr("sync_iers_data", iersCacheDir.getAbsolutePath());
+                    if (syncResult == null) {
+                        Log.w(TAG, "[IERS] Sync function returned null");
+                        return;
+                    }
+
+                    PyObject successObj = syncResult.callAttr("get", "success");
+                    PyObject messageObj = syncResult.callAttr("get", "message");
+                    PyObject timestampObj = syncResult.callAttr("get", "timestamp");
+
+                    boolean success = successObj != null && successObj.toBoolean();
+                    String message = messageObj != null ? messageObj.toString() : "Unknown error";
+                    String timestamp = timestampObj != null ? timestampObj.toString() : null;
+
+                    if (success && timestamp != null && !timestamp.equals("None")) {
+                        config.setIersLastSyncTimestamp(timestamp);
+                        Log.d(TAG, "[IERS] Auto-sync success: " + message);
+                    } else {
+                        Log.w(TAG, "[IERS] Auto-sync failed: " + message);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "[IERS] Auto-sync exception: " + e.getMessage());
+                } finally {
+                    executor.shutdown();
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "[IERS] Error checking auto-sync: " + e.getMessage());
+        }
+    }
+
     @Override
     protected void onPause() {
         long debug_time = 0;

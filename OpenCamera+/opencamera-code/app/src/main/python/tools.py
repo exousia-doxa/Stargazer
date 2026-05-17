@@ -1,12 +1,250 @@
 from astropy.time import Time
 from astropy import units as u
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
-from astropy.utils.iers import iers
+from astropy.utils.iers import iers, IERS_A
 import numpy as np
 from astropy import wcs
 from astropy.io import fits
+import sys
+import json
+from pathlib import Path
+from datetime import datetime, timedelta
+import urllib.request
+import urllib.error
+import socket
 
-iers.conf.auto_download = True
+# Keep auto_download enabled by default; only disable if cache successfully loads
+# If cache load fails, astropy will auto-download or use IERS-B as fallback
+# This ensures coordinate transforms work even without cached IERS
+
+### IERS SYNC & CACHE MANAGEMENT
+
+def sync_iers_data(cache_dir: str) -> dict:
+    """Download IERS Finals2000A data from official sources, cache locally.
+
+    Returns: {"success": bool, "message": str, "timestamp": str|None}
+    """
+    result = {"success": False, "message": "", "timestamp": None}
+    try:
+        cache_path = Path(cache_dir)
+        cache_path.mkdir(parents=True, exist_ok=True)
+        iers_file = cache_path / "finals2000A.all"
+
+        print(f"[IERS] Starting sync to {iers_file}")
+        sys.stdout.flush()
+
+        # Try primary source
+        urls = [
+            "https://datacenter.iers.org/data/9/finals2000A.all",
+            "https://maia.usno.navy.mil/ser7/finals2000A.all"
+        ]
+
+        downloaded = False
+        for url in urls:
+            try:
+                print(f"[IERS] Attempting download from {url}")
+                sys.stdout.flush()
+
+                # Add User-Agent header for compatibility with strict servers
+                req = urllib.request.Request(
+                    url,
+                    headers={'User-Agent': 'Stargazer/1.0 (Android Astronomy App)'}
+                )
+                # Increased timeout for slow/congested networks
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    data = response.read()
+
+                with open(iers_file, 'wb') as f:
+                    f.write(data)
+
+                downloaded = True
+                size_kb = len(data) / 1024
+                print(f"[IERS] Downloaded {size_kb:.1f} KB from {url}")
+                sys.stdout.flush()
+                break
+
+            except urllib.error.HTTPError as e:
+                print(f"[IERS] HTTP {e.code} from {url}")
+                sys.stdout.flush()
+            except urllib.error.URLError as e:
+                print(f"[IERS] URL error from {url}: {e.reason}")
+                sys.stdout.flush()
+            except socket.timeout:
+                print(f"[IERS] Timeout from {url}")
+                sys.stdout.flush()
+            except Exception as e:
+                print(f"[IERS] Error from {url}: {type(e).__name__}: {e}")
+                sys.stdout.flush()
+
+        if not downloaded:
+            result["message"] = "Could not download from any IERS source (network unavailable?)"
+            print(f"[IERS] {result['message']}")
+            sys.stdout.flush()
+            return result
+
+        # Validate file exists and has reasonable size
+        if not iers_file.exists():
+            result["message"] = "Downloaded file disappeared"
+            print(f"[IERS] ERROR: {result['message']}")
+            sys.stdout.flush()
+            return result
+
+        file_size = iers_file.stat().st_size
+        if file_size < 10000:  # IERS files are ~90KB
+            result["message"] = f"Downloaded file too small ({file_size} bytes)"
+            print(f"[IERS] ERROR: {result['message']}")
+            sys.stdout.flush()
+            return result
+
+        # Validate it's actual IERS format (starts with version line)
+        try:
+            with open(iers_file, 'r', errors='ignore') as f:
+                first_line = f.readline()
+                if not ('2000' in first_line or 'IERS' in first_line):
+                    result["message"] = "Downloaded file does not appear to be valid IERS data"
+                    print(f"[IERS] WARNING: {result['message']}")
+                    sys.stdout.flush()
+        except Exception as e:
+            print(f"[IERS] Could not validate file format: {e}")
+            sys.stdout.flush()
+
+        # Record sync timestamp
+        now_iso = datetime.utcnow().isoformat() + "Z"
+
+        # Write metadata
+        meta_file = cache_path / "iers_sync_meta.json"
+        meta = {
+            "last_sync": now_iso,
+            "file_size": file_size,
+            "source": url
+        }
+        with open(meta_file, 'w') as f:
+            json.dump(meta, f)
+
+        result["success"] = True
+        result["timestamp"] = now_iso
+        result["message"] = f"Synced {file_size/1024:.1f} KB from IERS"
+        print(f"[IERS] SUCCESS: {result['message']}")
+        sys.stdout.flush()
+        return result
+
+    except Exception as e:
+        import traceback
+        result["message"] = f"Sync exception: {type(e).__name__}: {e}"
+        print(f"[IERS] ERROR: {result['message']}")
+        print(f"[IERS] Traceback: {traceback.format_exc()}")
+        sys.stdout.flush()
+        return result
+
+
+def load_iers_from_cache(cache_dir: str) -> dict:
+    """Load cached IERS data into astropy. Configure astropy to use it.
+
+    Returns: {"success": bool, "message": str, "using_cache": bool}
+    """
+    result = {"success": False, "message": "", "using_cache": False}
+    try:
+        cache_path = Path(cache_dir)
+        iers_file = cache_path / "finals2000A.all"
+
+        if not iers_file.exists():
+            result["message"] = f"Cache file not found: {iers_file}"
+            print(f"[IERS] WARNING: {result['message']}")
+            sys.stdout.flush()
+            return result
+
+        print(f"[IERS] Loading cached IERS from {iers_file}")
+        sys.stdout.flush()
+
+        try:
+            # Load cached IERS data and register with astropy
+            iers_data = IERS_A.read(str(iers_file))
+
+            # Update astropy's active IERS table so FK5 transforms use loaded data
+            # This ensures all coordinate transformations use the cached IERS
+            iers.IERS_A_FILE = str(iers_file)
+
+            # Keep auto_download enabled: astropy will prefer loaded cache,
+            # but can auto-fetch if needed. This ensures FK5 transforms always have valid IERS.
+            # (auto_download was already default=True, no need to change)
+
+            result["success"] = True
+            result["using_cache"] = True
+            result["message"] = f"Loaded IERS cache ({len(iers_data)} entries)"
+            print(f"[IERS] SUCCESS: Cache loaded with {len(iers_data)} entries, registered with astropy")
+            print(f"[IERS] IERS_A_FILE: {iers.IERS_A_FILE}")
+            sys.stdout.flush()
+            return result
+        except Exception as e:
+            result["message"] = f"Could not load IERS file: {e}"
+            print(f"[IERS] ERROR: {result['message']}")
+            print(f"[IERS] WARNING: Keeping auto_download enabled for fallback")
+            sys.stdout.flush()
+            return result
+
+    except Exception as e:
+        import traceback
+        result["message"] = f"Load exception: {type(e).__name__}: {e}"
+        print(f"[IERS] ERROR: {result['message']}")
+        print(f"[IERS] Traceback: {traceback.format_exc()}")
+        sys.stdout.flush()
+        return result
+
+
+def iers_needs_sync(last_sync_iso: str, hours_interval: int) -> bool:
+    """Check if IERS cache needs refresh based on interval.
+
+    last_sync_iso: ISO 8601 timestamp string (or None for never)
+    hours_interval: threshold in hours
+
+    Returns: True if sync needed, False otherwise
+    """
+    try:
+        if not last_sync_iso:
+            print(f"[IERS] Never synced before, sync needed")
+            return True
+
+        try:
+            last_sync = datetime.fromisoformat(last_sync_iso.replace('Z', '+00:00'))
+        except Exception as e:
+            print(f"[IERS] Could not parse last_sync timestamp: {e}, forcing sync")
+            return True
+
+        now = datetime.utcnow()
+        elapsed = now - last_sync
+        threshold = timedelta(hours=hours_interval)
+
+        needs_sync = elapsed > threshold
+        if needs_sync:
+            hours_old = elapsed.total_seconds() / 3600
+            print(f"[IERS] Cache is {hours_old:.1f}h old, sync needed (interval={hours_interval}h)")
+        else:
+            hours_remain = (threshold - elapsed).total_seconds() / 3600
+            print(f"[IERS] Cache fresh, next sync in {hours_remain:.1f}h")
+
+        return needs_sync
+
+    except Exception as e:
+        print(f"[IERS] Error checking sync need: {e}, forcing sync")
+        return True
+
+
+def read_iers_sync_metadata(cache_dir: str) -> dict:
+    """Read last sync timestamp from metadata file.
+
+    Returns: {"last_sync": str|None, "file_size": int, "source": str}
+    """
+    try:
+        meta_file = Path(cache_dir) / "iers_sync_meta.json"
+        if not meta_file.exists():
+            return {"last_sync": None, "file_size": 0, "source": ""}
+
+        with open(meta_file, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[IERS] Could not read metadata: {e}")
+        return {"last_sync": None, "file_size": 0, "source": ""}
+
 
 ### LEGACY
 

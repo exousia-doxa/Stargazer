@@ -1076,4 +1076,21 @@
         <item>preference_save_preshots_off</item>
         <item>preference_save_preshots_on</item>
     </string-array>
+    <!-- IERS auto-sync interval options -->
+    <string-array name="preference_iers_auto_sync_hours_entries">
+        <item>24 hours (daily)</item>
+        <item>3 days</item>
+        <item>1 week</item>
+        <item>2 weeks</item>
+        <item>1 month</item>
+        <item>Never auto-sync</item>
+    </string-array>
+    <string-array name="preference_iers_auto_sync_hours_values">
+        <item>24</item>
+        <item>72</item>
+        <item>168</item>
+        <item>336</item>
+        <item>720</item>
+        <item>999999</item>
+    </string-array>
 </resources>
