@@ -299,8 +299,26 @@ def find_icrs_via_xy(wcs_filename, point_xy):
 
     return [float(w.wcs_pix2world(np.array([point_xy], dtype=np.float64), 0)[0][0]), float(w.wcs_pix2world(np.array([point_xy], dtype=np.float64), 0)[0][1])]
 
+# Check if WCS header contains SIP distortion coefficients
+def check_wcs_has_sip(wcs_filename):
+    try:
+        with fits.open(wcs_filename) as hdulist:
+            w = wcs.WCS(hdulist[0].header)
+        return w.sip is not None
+    except Exception:
+        return False
+
 # It computes pixel coordinates from given ICRS coordinates using WCS file
+# Returns DISTORTED pixels (accounts for SIP if present) — for image display/drawing
 def find_xy_via_icrs(wcs_filename, point_icrs):
+    with fits.open(wcs_filename) as hdulist:
+        w = wcs.WCS(hdulist[0].header)
+
+    return w.all_world2pix(np.array([point_icrs], dtype=np.float64), 0)[0]
+
+# It computes UNDISTORTED pixel coordinates from given ICRS coordinates using WCS file
+# Uses linear WCS only (no SIP) — for ray-based computations in camera frame
+def find_xy_via_icrs_linear(wcs_filename, point_icrs):
     with fits.open(wcs_filename) as hdulist:
         w = wcs.WCS(hdulist[0].header)
 

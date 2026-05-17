@@ -512,6 +512,11 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         if not Path(wcs_fits).exists():
             raise RuntimeError(f"WCS file missing after solve: {wcs_fits}")
 
+        # Check and log WCS SIP distortion presence (optical lens correction)
+        has_sip = tools.check_wcs_has_sip(wcs_fits)
+        print(f"DEBUG: WCS SIP distortion present: {has_sip}")
+        sys.stdout.flush()
+
         obs_zenith_xy = tools.find_xy_via_orientation(camera_data[0], camera_data[1], camera_data[2], photo_data[0], orientation_vector / np.linalg.norm(orientation_vector))
         obs_angle_deg = tools.pixel_angle_deg_from_center(obs_zenith_xy, camera_data)
         print(f"Zenith offset from center: {obs_angle_deg:.1f}°")
@@ -637,7 +642,8 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             km = 6371 * c
             print(f"Location precision: {km:.1f} km")
             apr_zenith_icrs = tools.find_icrs_via_location(observation_timestamp, actual_latitude, actual_longitude)
-            apr_zenith_xy = tools.find_xy_via_icrs(wcs_fits, apr_zenith_icrs)
+            apr_zenith_xy = tools.find_xy_via_icrs(wcs_fits, apr_zenith_icrs)  # distorted pixel, for drawing
+            apr_zenith_xy_linear = tools.find_xy_via_icrs_linear(wcs_fits, apr_zenith_icrs)  # undistorted pixel, for rays
             results['approx_photo_coordinates'] = apr_zenith_xy
             results['approx_icrs_coordinated'] = apr_zenith_icrs
             results['actual_location'] = [actual_latitude, actual_longitude]
@@ -646,7 +652,7 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             # Higher error = lower quality (not based on position in photo)
             try:
                 obs_ray = tools.pixel_to_ray(obs_zenith_xy[0], obs_zenith_xy[1], camera_data)
-                apr_ray = tools.pixel_to_ray(apr_zenith_xy[0], apr_zenith_xy[1], camera_data)
+                apr_ray = tools.pixel_to_ray(apr_zenith_xy_linear[0], apr_zenith_xy_linear[1], camera_data)
                 cos_angle = np.clip(np.dot(obs_ray, apr_ray), -1, 1)
                 error_angle_deg = np.degrees(np.arccos(cos_angle))
                 # Quality: 0° error = 100, 20° error = 0 (stricter scale for IMU accuracy)
@@ -666,7 +672,7 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             if is_imu_correction_local_set and not is_imu_correction_get:
                 print(f"DEBUG: Writing correction matrix to {linked_image}")
                 sys.stdout.flush()
-                apr_zenith_vector = tools.pixel_to_ray(apr_zenith_xy[0], apr_zenith_xy[1], camera_data)
+                apr_zenith_vector = tools.pixel_to_ray(apr_zenith_xy_linear[0], apr_zenith_xy_linear[1], camera_data)
                 obs_zenith_vector = tools.pixel_to_ray(obs_zenith_xy[0], obs_zenith_xy[1], camera_data)
                 cor_matrix = tools.rotation_from_vectors(obs_zenith_vector, apr_zenith_vector)
                 set_meta_scheme(linked_image,
