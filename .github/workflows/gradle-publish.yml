@@ -24,6 +24,11 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
     - name: Grant execute permission to gradle
       run: chmod +x OpenCamera+/opencamera-code/gradlew
 
@@ -43,37 +48,30 @@ jobs:
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-    - name: Upload debug APK to artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug
-        path: OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
-
     - name: Upload release APK to artifacts
       if: startsWith(github.ref, 'refs/tags/v')
       uses: actions/upload-artifact@v4
       with:
         name: app-release
-        path: OpenCamera+/opencamera-code/app/build/outputs/apk/release/app-release.apk
+        path: OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk
 
     - name: Create GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          OpenCamera+/opencamera-code/app/build/outputs/apk/release/app-release.apk
-          OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
-        generate_release_notes: true
+          OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk
+        generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Test build status
       if: always()
       run: |
-        if [ -f "OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk" ]; then
-          echo "✓ Debug APK built successfully"
-          ls -lh OpenCamera+/opencamera-code/app/build/outputs/apk/debug/app-debug.apk
+        if [ -f "OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk" ]; then
+          echo "✓ Release APK built successfully"
+          ls -lh OpenCamera+/opencamera-code/app/build/outputs/apk/release/Stargazer.apk
         else
-          echo "✗ Debug APK build failed"
+          echo "✗ Release APK build failed"
           exit 1
         fi
