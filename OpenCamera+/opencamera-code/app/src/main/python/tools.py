@@ -253,12 +253,18 @@ def find_location_via_icrs(
         dec_deg: float,
         obs_time,
         init_guess=(0.0, 0.0),
-        step_deg: float = 0.1,
-        precision_deg: float = 1e-4):
-    """Estimate Earth location (latitude, longitude) from sky coordinates at observation time via grid search."""
+        coarse_search: bool = False):
+    """Estimate Earth location via adaptive grid search.
+
+    coarse_search=True: Start 10° step (global search)
+    coarse_search=False: Start 0.1° step (local refinement from cached location)
+    """
     target_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
     best_lat, best_lon = float(init_guess[0]), float(init_guess[1])
     best_sep_deg = float('inf')
+
+    step_deg = 10.0 if coarse_search else 0.1
+    precision_deg = 1e-4
 
     while step_deg >= precision_deg:
         sel_lat = (best_lat - step_deg, best_lat, best_lat + step_deg)

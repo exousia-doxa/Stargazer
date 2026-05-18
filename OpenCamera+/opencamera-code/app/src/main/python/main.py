@@ -288,6 +288,15 @@ def set_meta_scheme(image_path,
             exif_dict = piexif.load(str(img_path))
             user_comment = json.dumps(meta, ensure_ascii=False, indent=2)
             exif_dict['Exif'][piexif.ExifIFD.UserComment] = user_comment.encode('utf-8')
+            # Clean invalid EXIF tags before dump (e.g., ComponentsConfiguration stored as tuple instead of bytes)
+            for ifd_name in ('0th', '1st', 'Exif', 'GPS', 'Interop'):
+                if ifd_name in exif_dict:
+                    ifd = exif_dict[ifd_name]
+                    for tag in list(ifd.keys()):
+                        try:
+                            piexif.dump({ifd_name: {tag: ifd[tag]}})
+                        except (TypeError, ValueError):
+                            del ifd[tag]
             exif_bytes = piexif.dump(exif_dict)
             piexif.insert(exif_bytes, str(img_path))
         except Exception as e:
@@ -414,9 +423,9 @@ drawing = tools.drawing
 # solve_photo: perform plate solving and compute sky/location results for a single photo
 # Input: PhotoMeta, config dict, and boolean flags controlling calibration/IMU behavior
 # Output: dict with computed results and any updated metadata written back to image
-def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=True, is_imu_correction_local_set=False):
+def solve_photo(meta, arguments_c, is_imu_correction_get=True, is_imu_correction_local_set=False):
     start_time = time.time()
-    print(f"DEBUG SOLVE_START: local_set={is_imu_correction_local_set}, global_get={is_imu_correction_get}, calibrating={is_calibrating}")
+    print(f"DEBUG SOLVE_START: local_set={is_imu_correction_local_set}, global_get={is_imu_correction_get}")
     print(f"DEBUG: Config has {len(arguments_c.get('correction_matrix', []))} bins")
 
     # Load IERS cache if available
@@ -517,30 +526,35 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
 
         # apply global correction if found in config and requested
         # Format: [[bin_min, bin_max], matrix, num_photos, avg_quality] (backwards compatible with old 2-element format)
-        cm_list = arguments_c.get('correction_matrix', [])
-        print(f"DEBUG: is_imu_correction_get={is_imu_correction_get}, cm_list length={len(cm_list)}")
-        if len(cm_list) > 0:
-            print(f"DEBUG: Available bins: {[entry[0] for entry in cm_list]}")
         selected_matrix = None
         selected_bin_info = None
-        for entry in cm_list:
-            try:
-                rng = entry[0]
-                mat = np.asarray(entry[1], dtype=np.float64)
-                print(f"DEBUG: Checking bin {rng} against obs_angle_deg={obs_angle_deg}")
-                if len(rng) >= 2 and rng[0] <= obs_angle_deg < rng[1]:
-                    selected_matrix = mat
-                    # Extract metadata if present (new format)
-                    if len(entry) >= 4:
-                        selected_bin_info = {"num_photos": entry[2], "avg_quality": entry[3]}
-                    print(f"DEBUG: BIN MATCHED! {rng}")
-                    break
-            except Exception as e:
-                print(f"DEBUG: Error checking bin: {e}")
-                continue
-        if selected_matrix is None:
-            print(f"DEBUG: No matching bin found for obs_angle_deg={obs_angle_deg}")
-        if selected_matrix is not None and is_imu_correction_get:
+
+        # Only check bins if global correction is actually requested
+        if is_imu_correction_get:
+            cm_list = arguments_c.get('correction_matrix', [])
+            print(f"DEBUG: is_imu_correction_get={is_imu_correction_get}, cm_list length={len(cm_list)}")
+            if len(cm_list) > 0:
+                print(f"DEBUG: Available bins: {[entry[0] for entry in cm_list]}")
+
+            for entry in cm_list:
+                try:
+                    rng = entry[0]
+                    mat = np.asarray(entry[1], dtype=np.float64)
+                    print(f"DEBUG: Checking bin {rng} against obs_angle_deg={obs_angle_deg}")
+                    if len(rng) >= 2 and rng[0] <= obs_angle_deg < rng[1]:
+                        selected_matrix = mat
+                        # Extract metadata if present (new format)
+                        if len(entry) >= 4:
+                            selected_bin_info = {"num_photos": entry[2], "avg_quality": entry[3]}
+                        print(f"DEBUG: BIN MATCHED! {rng}")
+                        break
+                except Exception as e:
+                    print(f"DEBUG: Error checking bin: {e}")
+                    continue
+            if selected_matrix is None:
+                print(f"DEBUG: No matching bin found for obs_angle_deg={obs_angle_deg}")
+
+        if selected_matrix is not None:
             bin_info_str = ""
             if selected_bin_info:
                 bin_info_str = f" (based on {selected_bin_info['num_photos']} photos, avg quality {selected_bin_info['avg_quality']}/100)"
@@ -558,16 +572,25 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         # (Epoch conversion was causing westward shift from negative precession)
         obs_zenith_icrs_j2000 = obs_zenith_icrs
 
-        # location initial guess: use embedded photo_icrs if available, otherwise compute
-        loc_best_guess = None
+        # Single adaptive location search: global if no photo_icrs, refined if cached
+        init_guess = [0.0, 0.0]
+        coarse_search = True
         if photo_icrs is not None:
             try:
-                loc_best_guess = [float(photo_icrs[0]), float(photo_icrs[1])]
+                init_guess = [float(photo_icrs[0]), float(photo_icrs[1])]
+                coarse_search = False
+                print(f"DEBUG: Using cached photo_icrs as init_guess: {init_guess}")
             except Exception:
-                loc_best_guess = None
-        if loc_best_guess is None:
-            try:
-                loc_best_guess = tools.find_location_via_icrs(obs_zenith_icrs_j2000[0], obs_zenith_icrs_j2000[1], observation_timestamp)
+                print(f"DEBUG: Could not parse cached photo_icrs, using global search")
+
+        try:
+            obs_location = tools.find_location_via_icrs(obs_zenith_icrs_j2000[0], obs_zenith_icrs_j2000[1], observation_timestamp, init_guess, coarse_search)
+            print(f"Location computed from sky: {obs_location[0]}, {obs_location[1]}")
+
+            # Cache location for next solve if not already cached
+            if photo_icrs is None and is_imu_correction_local_set:
+                print(f"DEBUG: Caching location for future solves")
+                sys.stdout.flush()
                 set_meta_scheme(linked_image,
                                 linked_image=linked_image,
                                 plate_solve_arguments=plate_solve_arguments,
@@ -580,13 +603,11 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
                                 correction_vector_matrix=meta.correction_vector_matrix,
                                 photo_coordinates=[local_photo_x, local_photo_y] if local_photo_x is not None else None,
                                 correction_degree=local_correction_degree,
-                                photo_icrs=loc_best_guess)
-                results['photo_icrs_saved'] = loc_best_guess
-            except Exception:
-                loc_best_guess = None
-
-        obs_location = tools.find_location_via_icrs(obs_zenith_icrs_j2000[0], obs_zenith_icrs_j2000[1], observation_timestamp, loc_best_guess)
-        print(f"Location computed from sky: {obs_location[0]}, {obs_location[1]}")
+                                photo_icrs=obs_location)
+                results['photo_icrs_saved'] = obs_location
+        except Exception as e:
+            print(f"DEBUG: Error in location search: {e}")
+            obs_location = [0.0, 0.0]
 
         # Extract index name from solver output log
         index_name = "Unknown"
@@ -609,22 +630,23 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         except Exception as e:
             print(f"DEBUG: Could not extract index name from log: {e}")
 
-        # Calculate zenith offset in km (~111 km/degree)
-        zenith_offset_km = obs_angle_deg * 111.0
-
         results.update({'calculated_photo_coordinates': obs_zenith_xy,
                         'calculated_icrs_coordinates_epoch': obs_zenith_icrs,
                         'calculated_icrs_coordinates_j2000': obs_zenith_icrs_j2000,
                         'calculated_location': obs_location,
                         'zenith_offset_degrees': round(float(obs_angle_deg), 2),
-                        'zenith_offset_km': round(float(zenith_offset_km), 2),
                         'index_name': index_name})
 
-        # Default quality score (no GPS available)
+        # Default quality score and zenith mismatch angle (no GPS available)
         quality_score = -1.0
+        error_angle_deg = None
 
         # perform local calibration if requested and actual GPS is available
-        if is_calibrating and actual_latitude is not None:
+        print(f"DEBUG: GPS block check - actual_latitude={actual_latitude}")
+        sys.stdout.flush()
+        if actual_latitude is not None:
+            print(f"DEBUG: Entering GPS block (GPS available)")
+            sys.stdout.flush()
             print(f"GPS location: {actual_latitude}, {actual_longitude}")
             from math import radians, cos, sin, asin, sqrt
             lat1, lon1 = radians(actual_latitude), radians(actual_longitude)
@@ -694,7 +716,7 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
         results['no_local_found_message'] = None
 
         # Use apr_zenith_xy if available, else None
-        apr_zenith_xy_for_drawing = apr_zenith_xy if (is_calibrating and actual_latitude is not None and 'approx_photo_coordinates' in results) else None
+        apr_zenith_xy_for_drawing = apr_zenith_xy if (is_imu_correction_local_set and actual_latitude is not None and 'approx_photo_coordinates' in results) else None
         charted = drawing(asdict(meta), obs_zenith_xy, apr_zenith_xy_for_drawing)
         results['charted_image'] = charted
 
@@ -708,20 +730,25 @@ def solve_photo(meta, arguments_c, is_calibrating=True, is_imu_correction_get=Tr
             location_precision_km = round(6371 * c, 2)
             results['location_precision_km'] = location_precision_km
 
-            # Calculate zenith mismatch impact percentage
-            if results.get('zenith_offset_km') and results.get('zenith_offset_km') > 0:
-                zenith_offset_km = float(results['zenith_offset_km'])
-                mismatch_impact_percent = round((zenith_offset_km / location_precision_km * 100), 2) if location_precision_km > 0 else 0
+            # Calculate zenith mismatch impact percentage based on error angle (GPS-derived)
+            if error_angle_deg is not None and error_angle_deg > 0:
+                zenith_mismatch_km = error_angle_deg * 111.0
+                mismatch_impact_percent = round((zenith_mismatch_km / location_precision_km * 100), 2) if location_precision_km > 0 else 0
                 results['zenith_mismatch_impact_percent'] = mismatch_impact_percent
                 print(f"Zenith mismatch impact: {mismatch_impact_percent}%")
 
-        # Set quality score in results (calculated above when GPS available)
+        # Set quality score and zenith mismatch angle in results (calculated above when GPS available)
         if quality_score >= 0:
             results['calibration_quality_score'] = quality_score
             print(f"Final quality score: {quality_score}/100")
         else:
             results['calibration_quality_score'] = -1.0
             print(f"Quality score: unavailable (no GPS data)")
+
+        if error_angle_deg is not None:
+            results['zenith_mismatch_angle_degrees'] = round(float(error_angle_deg), 2)
+        else:
+            results['zenith_mismatch_angle_degrees'] = "N/A"
     except Exception as e:
         import traceback
         error_msg = str(e)
@@ -853,14 +880,12 @@ def solve_photo_from_json(json_string):
         if data.get("index_directory"):
             arguments_c['index_directory'] = data.get("index_directory")
 
-        is_calibrating = data.get("is_calibrating", True)
         is_imu_correction_local_set = data.get("imu_correction_local_set", False)
         is_imu_correction_get = data.get("imu_correction_get", False)
-        print(f"DEBUG JSON_PARAMS: is_calibrating={is_calibrating}, imu_correction_local_set={is_imu_correction_local_set}, imu_correction_get={is_imu_correction_get}")
+        print(f"DEBUG JSON_PARAMS: imu_correction_local_set={is_imu_correction_local_set}, imu_correction_get={is_imu_correction_get}")
         print(f"DEBUG JSON_KEYS: {list(data.keys())}")
 
         res = solve_photo(meta, arguments_c,
-                         is_calibrating=is_calibrating,
                          is_imu_correction_get=is_imu_correction_get,
                          is_imu_correction_local_set=is_imu_correction_local_set)
 
@@ -918,7 +943,10 @@ def calibrate_correction(arguments_c, images=None):
                 # BIN BY OBSERVED ZENITH OFFSET (phone orientation), not actual offset
                 # observed_zenith_offset = where phone thinks zenith is
                 # This groups corrections by phone tilt, which is what we need for future corrections
-                angle = float(meta.observed_zenith_offset or meta.correction_degree or 0.0)
+                # Skip photos without valid observed zenith offset (old metadata format)
+                if meta.observed_zenith_offset is None or meta.observed_zenith_offset < 0:
+                    continue
+                angle = float(meta.observed_zenith_offset)
                 if mat.shape == (3, 3):
                     bin_start = (int(angle // degree_step) * int(degree_step))
                     bin_key = (bin_start, bin_start + int(degree_step))
@@ -1011,7 +1039,6 @@ if __name__ == "__main__":
             sys.exit(2)
         res = solve_photo(meta,
                   arguments_c,
-                  is_calibrating=args.calibrate,
                   is_imu_correction_get=args.imu_get,
                   is_imu_correction_local_set=args.imu_local_set)
         print(json.dumps(res, ensure_ascii=False, indent=2))

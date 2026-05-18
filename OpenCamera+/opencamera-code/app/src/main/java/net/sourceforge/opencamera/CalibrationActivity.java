@@ -121,10 +121,28 @@ public class CalibrationActivity extends AppCompatActivity {
                     filePath = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA));
                 }
             } catch (Exception e) {
-                Log.w(TAG, "Could not resolve URI to path: " + e.getMessage());
+                Log.w(TAG, "Could not resolve URI to path via MediaStore: " + e.getMessage());
             }
         }
         return filePath;
+    }
+
+    /**
+     * Extract display name from content URI (handles all providers: MediaStore, SAF, cloud, etc).
+     */
+    private String getDisplayNameFromUri(Uri uri) {
+        String displayName = null;
+        try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (nameIndex >= 0) {
+                    displayName = cursor.getString(nameIndex);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not resolve display name from URI: " + e.getMessage());
+        }
+        return displayName;
     }
 
     /**
@@ -170,15 +188,27 @@ public class CalibrationActivity extends AppCompatActivity {
             }
         }
 
+        // Try to get original photo name (works for all URI types: file, MediaStore, SAF, cloud)
+        String originalRealPath = getRealPathFromUri(uri);
+        String originalDisplayName = getDisplayNameFromUri(uri);
+        if (originalDisplayName == null) {
+            // Fallback: try real path
+            if (originalRealPath != null) {
+                originalDisplayName = new File(originalRealPath).getName();
+                Log.d(TAG, "Got name from real path: " + originalDisplayName);
+            } else {
+                // Last resort: use temp name
+                originalDisplayName = new File(tempFile.getAbsolutePath()).getName();
+                Log.d(TAG, "Using temp name fallback: " + originalDisplayName);
+            }
+        } else {
+            Log.d(TAG, "Got display name from URI: " + originalDisplayName);
+        }
+
         CalibrationPhotoInfo info = new CalibrationPhotoInfo();
         info.filePath = tempFile.getAbsolutePath();
-        info.fileName = new File(info.filePath).getName();
-
-        // Try to get real path of original photo
-        String originalRealPath = getRealPathFromUri(uri);
-        if (originalRealPath == null) {
-            originalRealPath = info.filePath;
-        }
+        info.fileName = originalDisplayName;
+        Log.d(TAG, "Photo display name: " + info.fileName);
 
         try {
             if (!Python.isStarted()) {

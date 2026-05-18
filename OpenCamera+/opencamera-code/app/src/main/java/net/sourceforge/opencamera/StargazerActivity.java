@@ -269,6 +269,20 @@ public class StargazerActivity extends AppCompatActivity {
             return;
         }
 
+        // Refresh calibration settings from preferences (in case user changed them after photo selection)
+        try {
+            JSONObject jsonObj = new JSONObject(currentJsonString);
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
+            boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+            jsonObj.put("imu_correction_local_set", localCalibCapture);
+            jsonObj.put("imu_correction_get", globalCalibApply);
+            currentJsonString = jsonObj.toString(4);
+            Log.d(TAG, "Updated calibration settings: local_set=" + localCalibCapture + ", global_get=" + globalCalibApply);
+        } catch (JSONException e) {
+            Log.e(TAG, "Error updating calibration settings: " + e.getMessage());
+        }
+
         pythonSolveFuture = solveExecutor.submit(() -> {
             try {
                 runOnUiThread(() -> {
@@ -389,17 +403,27 @@ public class StargazerActivity extends AppCompatActivity {
                                         addSolverResultRow("Index", indexName);
                                     }
 
-                                    // Zenith offset (degrees and km)
+                                    // Observed zenith offset (phone orientation)
                                     double zenithOffsetDeg = resJson.optDouble("zenith_offset_degrees", -1);
-                                    double zenithOffsetKm = resJson.optDouble("zenith_offset_km", -1);
                                     if (zenithOffsetDeg >= 0) {
-                                        addSolverResultRow("Zenith offset", String.format("%.2f° (~%.1f km)", zenithOffsetDeg, zenithOffsetKm));
+                                        addSolverResultRow("Zenith offset angle", String.format("%.2f°", zenithOffsetDeg));
+                                    }
+
+                                    // Zenith mismatch angle (between observed and actual zenith from GPS)
+                                    Object zenithMismatchObj = resJson.opt("zenith_mismatch_angle_degrees");
+                                    if (zenithMismatchObj != null) {
+                                        if (zenithMismatchObj instanceof Number) {
+                                            double zenithMismatchAngle = ((Number) zenithMismatchObj).doubleValue();
+                                            addSolverResultRow("Zenith mismatch angle", String.format("%.2f°", zenithMismatchAngle));
+                                        } else if (zenithMismatchObj instanceof String && zenithMismatchObj.equals("N/A")) {
+                                            addSolverResultRow("Zenith mismatch angle", "N/A (no GPS)");
+                                        }
                                     }
 
                                     // Zenith mismatch impact percentage
                                     double mismatchPercent = resJson.optDouble("zenith_mismatch_impact_percent", -1);
                                     if (mismatchPercent >= 0 && precision >= 0) {
-                                        addSolverResultRow("Zenith mismatch impact", String.format("%.1f%%", mismatchPercent));
+                                        addSolverResultRow("Mismatch impact", String.format("%.1f%%", mismatchPercent));
                                     }
 
                                     // Calibration quality score
@@ -440,33 +464,40 @@ public class StargazerActivity extends AppCompatActivity {
                         Log.e(TAG, "Python error in solve thread", e);
                         appendConsoleLine(consoleTextView, "Python error: " + e.getMessage());
                     } finally {
-                        // Write calibration metadata to original photo
+                        // Write calibration metadata to original photo only if local calibration is enabled
                         try {
-                            String targetPath = originalPath;
-                            String contentUri = null;
-                            // Check if JSON has original_real_path and original_content_uri (gallery photo case)
-                            try {
-                                JSONObject jsonObj = new JSONObject(currentJsonString);
-                                String realPath = jsonObj.optString("original_real_path");
-                                if (realPath != null && !realPath.isEmpty()) {
-                                    targetPath = realPath;
-                                    Log.d(TAG, "Using original real path for metadata write: " + targetPath);
-                                }
-                                String uri = jsonObj.optString("original_content_uri");
-                                if (uri != null && !uri.isEmpty()) {
-                                    contentUri = uri;
-                                    Log.d(TAG, "Using original content URI: " + contentUri);
-                                }
-                            } catch (Exception e) {
-                                Log.d(TAG, "No original_real_path in JSON, using default path");
-                            }
+                            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+                            boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
 
-                            if (targetPath != null && !targetPath.isEmpty() && solveResultJson != null && !solveResultJson.isEmpty()) {
-                                // Format all metadata (timestamp, gravity, location, calibration)
-                                String metaData = MetadataFormatter.formatMetadata(currentJsonString, solveResultJson);
-                                if (metaData != null && !metaData.isEmpty()) {
-                                    writeMetadataToFile(targetPath, metaData, contentUri);
+                            if (localCalibCapture) {
+                                String targetPath = originalPath;
+                                String contentUri = null;
+                                // Check if JSON has original_real_path and original_content_uri (gallery photo case)
+                                try {
+                                    JSONObject jsonObj = new JSONObject(currentJsonString);
+                                    String realPath = jsonObj.optString("original_real_path");
+                                    if (realPath != null && !realPath.isEmpty()) {
+                                        targetPath = realPath;
+                                        Log.d(TAG, "Using original real path for metadata write: " + targetPath);
+                                    }
+                                    String uri = jsonObj.optString("original_content_uri");
+                                    if (uri != null && !uri.isEmpty()) {
+                                        contentUri = uri;
+                                        Log.d(TAG, "Using original content URI: " + contentUri);
+                                    }
+                                } catch (Exception e) {
+                                    Log.d(TAG, "No original_real_path in JSON, using default path");
                                 }
+
+                                if (targetPath != null && !targetPath.isEmpty() && solveResultJson != null && !solveResultJson.isEmpty()) {
+                                    // Format all metadata (timestamp, gravity, location, calibration)
+                                    String metaData = MetadataFormatter.formatMetadata(currentJsonString, solveResultJson);
+                                    if (metaData != null && !metaData.isEmpty()) {
+                                        writeMetadataToFile(targetPath, metaData, contentUri);
+                                    }
+                                }
+                            } else {
+                                Log.d(TAG, "Local calibration disabled, skipping EXIF write");
                             }
                         } catch (Exception e) {
                             Log.e(TAG, "Error writing calibration metadata: " + e.getMessage());
