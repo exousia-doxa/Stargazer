@@ -957,14 +957,30 @@ def calibrate_correction(arguments_c, images=None):
                 continue
     if len(local_by_bin) == 0:
         return json.dumps({"matrices": None, "config": arguments_c})
+
+    # Pre-populate all bins from 0 to max angle, even if empty
+    if local_by_bin:
+        max_angle = max(k[1] for k in local_by_bin.keys())
+        for bin_start in range(0, max_angle, int(degree_step)):
+            bin_key = (bin_start, bin_start + int(degree_step))
+            if bin_key not in local_by_bin:
+                local_by_bin[bin_key] = []
+                quality_by_bin[bin_key] = []
+
     cm_list = []
     for bin_key, mats in sorted(local_by_bin.items()):
-        # Pass quality scores to weighting algorithm
-        qualities = quality_by_bin.get(bin_key, None)
-        combined = tools.combine_rotation_corrections(mats, quality_scores=qualities)
         num_photos = len(mats)
-        avg_quality = np.mean([q for q in qualities if q > 0]) if qualities and any(q > 0 for q in qualities) else -1
-        print(f"Bin {bin_key}: {num_photos} photos, avg quality {avg_quality:.1f}/100")
+        if num_photos == 0:
+            # Empty bin: use identity matrix as placeholder
+            combined = np.eye(3, dtype=np.float64)
+            avg_quality = -1.0
+            print(f"Bin {bin_key}: (uncalibrated, placeholder)")
+        else:
+            # Pass quality scores to weighting algorithm
+            qualities = quality_by_bin.get(bin_key, None)
+            combined = tools.combine_rotation_corrections(mats, quality_scores=qualities)
+            avg_quality = np.mean([q for q in qualities if q > 0]) if qualities and any(q > 0 for q in qualities) else -1
+            print(f"Bin {bin_key}: {num_photos} photos, avg quality {avg_quality:.1f}/100")
         # Store: [bin_range, matrix, num_photos_used, avg_quality_score]
         cm_list.append([
             [float(bin_key[0]), float(bin_key[1])],

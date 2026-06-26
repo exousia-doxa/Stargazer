@@ -314,7 +314,7 @@ def plate_solve(input_image, output_directory, parameters, arguments_c={}):
             "--dir", output_directory,
             "--wcs", wcs_path,
             "-m", output_directory,
-            "-y", "-9",
+            "-y",
             "--uniformize", "0",
         ]
 
@@ -328,7 +328,7 @@ def plate_solve(input_image, output_directory, parameters, arguments_c={}):
 
         # Warn about duplicate single-value flags (last wins on the engine
         # side, which silently overrides earlier values).
-        single_value_flags = {"-l", "-L", "-H", "-u", "-z", "-y",
+        single_value_flags = {"-l", "-L", "-H", "-u", "-z",
                               "--uniformize", "--config", "-3", "-4", "-5",
                               "--objs", "--parity"}
         seen = {}

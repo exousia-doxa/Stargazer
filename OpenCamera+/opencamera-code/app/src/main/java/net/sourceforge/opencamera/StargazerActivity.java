@@ -928,7 +928,7 @@ public class StargazerActivity extends AppCompatActivity {
         params.put("-J");
 
         // Field width range + units.
-        String unitsValue = prefs.getString(PreferenceKeys.SolverFieldUnitsKey, "arcminwidth");
+        String unitsValue = prefs.getString(PreferenceKeys.SolverFieldUnitsKey, "degwidth");
         String minStr = prefs.getString(PreferenceKeys.SolverFieldMinKey, "30");
         String maxStr = prefs.getString(PreferenceKeys.SolverFieldMaxKey, "180");
         if (minStr != null && !minStr.trim().isEmpty()) {
