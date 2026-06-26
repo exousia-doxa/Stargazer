@@ -3,6 +3,7 @@ import sys
 import time
 from pathlib import Path
 from io import StringIO
+from typing import Optional
 import numpy as np
 from PIL import Image
 from astropy.time import Time
@@ -40,18 +41,18 @@ class PhotoMeta:
     """Photo metadata container holding all inputs (ICRS, camera, orientation) and solve outputs."""
     linked_image: str
     plate_solve_arguments: list
-    photo_full_resolution: tuple
-    phone_sensor_size: tuple
-    phone_focal_length: float
-    photo_utc_timestamp: str
-    photo_location: tuple
+    photo_full_resolution: Optional[tuple]
+    phone_sensor_size: Optional[tuple]
+    phone_focal_length: Optional[float]
+    photo_utc_timestamp: Optional[str]
+    photo_location: Optional[tuple]
     phone_gravity_vector: tuple
-    correction_vector_matrix: object
-    photo_coordinates: tuple
-    correction_degree: object  # actual zenith offset (from GPS + WCS)
-    photo_icrs: object
+    correction_vector_matrix: Optional[object]
+    photo_coordinates: Optional[tuple]
+    correction_degree: Optional[object]
+    photo_icrs: Optional[object]
     calibration_quality_score: float = -1.0
-    observed_zenith_offset: float = -1.0  # observed zenith offset (from phone sensors) - used for binning
+    observed_zenith_offset: float = -1.0
 
 
 def format_metadata_delimited(meta, correction_matrix=None, correction_degree=None):
@@ -541,7 +542,7 @@ def solve_photo(meta, arguments_c, is_imu_correction_get=True, is_imu_correction
                     rng = entry[0]
                     mat = np.asarray(entry[1], dtype=np.float64)
                     print(f"DEBUG: Checking bin {rng} against obs_angle_deg={obs_angle_deg}")
-                    if len(rng) >= 2 and rng[0] <= obs_angle_deg < rng[1]:
+                    if len(rng) >= 2 and rng[0] <= obs_angle_deg < rng[1]:  # type: ignore
                         selected_matrix = mat
                         # Extract metadata if present (new format)
                         if len(entry) >= 4:
@@ -644,7 +645,7 @@ def solve_photo(meta, arguments_c, is_imu_correction_get=True, is_imu_correction
         # perform local calibration if requested and actual GPS is available
         print(f"DEBUG: GPS block check - actual_latitude={actual_latitude}")
         sys.stdout.flush()
-        if actual_latitude is not None:
+        if actual_latitude is not None and actual_longitude is not None:
             print(f"DEBUG: Entering GPS block (GPS available)")
             sys.stdout.flush()
             print(f"GPS location: {actual_latitude}, {actual_longitude}")
@@ -731,14 +732,14 @@ def solve_photo(meta, arguments_c, is_imu_correction_get=True, is_imu_correction
             results['location_precision_km'] = location_precision_km
 
             # Calculate zenith mismatch impact percentage based on error angle (GPS-derived)
-            if error_angle_deg is not None and error_angle_deg > 0:
+            if error_angle_deg is not None and error_angle_deg > 0:  # type: ignore
                 zenith_mismatch_km = error_angle_deg * 111.0
-                mismatch_impact_percent = round((zenith_mismatch_km / location_precision_km * 100), 2) if location_precision_km > 0 else 0
+                mismatch_impact_percent = round((zenith_mismatch_km / location_precision_km * 100), 2) if location_precision_km > 0 else 0  # type: ignore
                 results['zenith_mismatch_impact_percent'] = mismatch_impact_percent
                 print(f"Zenith mismatch impact: {mismatch_impact_percent}%")
 
         # Set quality score and zenith mismatch angle in results (calculated above when GPS available)
-        if quality_score >= 0:
+        if quality_score >= 0:  # type: ignore
             results['calibration_quality_score'] = quality_score
             print(f"Final quality score: {quality_score}/100")
         else:

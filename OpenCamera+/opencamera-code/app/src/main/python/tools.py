@@ -1,3 +1,4 @@
+from typing import Optional
 from astropy.time import Time
 from astropy import units as u
 from astropy.coordinates import SkyCoord, EarthLocation, AltAz
@@ -249,8 +250,8 @@ def read_iers_sync_metadata(cache_dir: str) -> dict:
 ### LEGACY
 
 def find_location_via_icrs(
-        ra_deg: float,
-        dec_deg: float,
+        ra_deg: Optional[float],
+        dec_deg: Optional[float],
         obs_time,
         init_guess=(0.0, 0.0),
         coarse_search: bool = False):
@@ -259,7 +260,9 @@ def find_location_via_icrs(
     coarse_search=True: Start 10° step (global search)
     coarse_search=False: Start 0.1° step (local refinement from cached location)
     """
-    target_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')
+    if ra_deg is None or dec_deg is None:
+        return [0.0, 0.0]
+    target_coord = SkyCoord(ra=ra_deg * u.deg, dec=dec_deg * u.deg, frame='icrs')  # type: ignore
     best_lat, best_lon = float(init_guess[0]), float(init_guess[1])
     best_sep_deg = float('inf')
 
@@ -277,9 +280,9 @@ def find_location_via_icrs(
             for lon in sel_lon:
                 lon_wrap = ((lon + 180.0) % 360.0) - 180.0
                 location = EarthLocation(lat=lat * u.deg, lon=lon_wrap * u.deg, height=0 * u.m)
-                point_altaz = SkyCoord(alt=90 * u.deg, az=0 * u.deg, frame=AltAz(obstime=Time(obs_time, scale='utc'), location=location))
-                point_icrs = point_altaz.transform_to('icrs')
-                sep_deg = target_coord.separation(point_icrs).deg
+                point_altaz = SkyCoord(alt=90 * u.deg, az=0 * u.deg, frame=AltAz(obstime=Time(obs_time, scale='utc'), location=location))  # type: ignore
+                point_icrs = point_altaz.transform_to('icrs')  # type: ignore
+                sep_deg = float(target_coord.separation(point_icrs).deg)  # type: ignore
                 if sep_deg < best_sep_deg:
                     best_sep_deg = sep_deg
                     best_lat, best_lon = lat, lon_wrap
@@ -290,41 +293,43 @@ def find_location_via_icrs(
 
     return [round(float(best_lat), 4), round(float(best_lon), 4)]
 
-def find_icrs_via_location(obs_time, lat_deg: float, lon_deg: float):
+def find_icrs_via_location(obs_time, lat_deg: Optional[float], lon_deg: Optional[float]):
     """Compute ICRS sky coordinates of zenith (alt=90°, az=0°) at Earth location and observation time."""
+    if lat_deg is None or lon_deg is None:
+        return [0.0, 0.0]
     location = EarthLocation(lat=lat_deg * u.deg, lon=lon_deg * u.deg, height=0 * u.m)
-    point_altaz = SkyCoord(alt=90 * u.deg, az=0 * u.deg, frame=AltAz(obstime=Time(obs_time, scale='utc'), location=location))
-    point_icrs = point_altaz.transform_to('icrs')
+    point_altaz = SkyCoord(alt=90 * u.deg, az=0 * u.deg, frame=AltAz(obstime=Time(obs_time, scale='utc'), location=location))  # type: ignore
+    point_icrs = point_altaz.transform_to('icrs')  # type: ignore
 
-    return [float(point_icrs.ra.to(u.deg).value), float(point_icrs.dec.to(u.deg).value)]
+    return [float(point_icrs.ra.to(u.deg).value), float(point_icrs.dec.to(u.deg).value)]  # type: ignore
 
 def find_icrs_via_xy(wcs_filename, point_xy):
     """Convert pixel coordinates to ICRS (J2000) sky coordinates using linear WCS (no SIP distortion)."""
-    with fits.open(wcs_filename) as hdulist:
-        w = wcs.WCS(hdulist[0].header)
+    with fits.open(wcs_filename) as hdulist:  # type: ignore
+        w = wcs.WCS(hdulist[0].header)  # type: ignore
 
     return [float(w.wcs_pix2world(np.array([point_xy], dtype=np.float64), 0)[0][0]), float(w.wcs_pix2world(np.array([point_xy], dtype=np.float64), 0)[0][1])]
 
 def check_wcs_has_sip(wcs_filename):
     """Check if WCS header contains SIP polynomial distortion coefficients."""
     try:
-        with fits.open(wcs_filename) as hdulist:
-            w = wcs.WCS(hdulist[0].header)
+        with fits.open(wcs_filename) as hdulist:  # type: ignore
+            w = wcs.WCS(hdulist[0].header)  # type: ignore
         return w.sip is not None
     except Exception:
         return False
 
 def find_xy_via_icrs(wcs_filename, point_icrs):
     """Convert ICRS sky coordinates to distorted image pixel coordinates (includes SIP if present)."""
-    with fits.open(wcs_filename) as hdulist:
-        w = wcs.WCS(hdulist[0].header)
+    with fits.open(wcs_filename) as hdulist:  # type: ignore
+        w = wcs.WCS(hdulist[0].header)  # type: ignore
 
     return w.all_world2pix(np.array([point_icrs], dtype=np.float64), 0)[0]
 
 def find_xy_via_icrs_linear(wcs_filename, point_icrs):
     """Convert ICRS sky coordinates to undistorted (linear WCS only) image pixels for ray computations."""
-    with fits.open(wcs_filename) as hdulist:
-        w = wcs.WCS(hdulist[0].header)
+    with fits.open(wcs_filename) as hdulist:  # type: ignore
+        w = wcs.WCS(hdulist[0].header)  # type: ignore
 
     return w.wcs_world2pix(np.array([point_icrs], dtype=np.float64), 0)[0]
 
