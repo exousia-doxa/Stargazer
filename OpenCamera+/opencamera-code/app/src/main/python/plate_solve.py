@@ -316,6 +316,7 @@ def plate_solve(input_image, output_directory, parameters, arguments_c={}):
             "-m", output_directory,
             "-y",
             "--uniformize", "0",
+            "--no-remove-lines",
         ]
 
         # Use default config from extracted location
