@@ -117,6 +117,9 @@ public class StargazerActivity extends AppCompatActivity {
                 // Now process the photo with permission granted
                 processGalleryPhoto(uri);
             }
+        } else if (requestCode == REQUEST_SETTINGS) {
+            // Settings activity closed, settings auto-saved to SharedPreferences
+            Log.d(TAG, "Settings activity returned");
         }
     }
 
@@ -273,8 +276,8 @@ public class StargazerActivity extends AppCompatActivity {
         try {
             JSONObject jsonObj = new JSONObject(currentJsonString);
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-            boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
-            boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+            boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+            boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
             jsonObj.put("imu_correction_local_set", localCalibCapture);
             jsonObj.put("imu_correction_get", globalCalibApply);
             currentJsonString = jsonObj.toString(4);
@@ -467,7 +470,7 @@ public class StargazerActivity extends AppCompatActivity {
                         // Write calibration metadata to original photo only if local calibration is enabled
                         try {
                             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-                            boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
+                            boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
 
                             if (localCalibCapture) {
                                 String targetPath = originalPath;
@@ -708,8 +711,8 @@ public class StargazerActivity extends AppCompatActivity {
                             : null);
                     embeddedJson.put("plate_solve_parameters", plateSolveParams);
                     // Add calibration flags from preferences
-                    boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
-                    boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+                    boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+                    boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
                     embeddedJson.put("imu_correction_local_set", localCalibCapture);
                     embeddedJson.put("imu_correction_get", globalCalibApply);
                     return embeddedJson.toString(4);
@@ -779,8 +782,8 @@ public class StargazerActivity extends AppCompatActivity {
                         root.put("plate_solve_parameters", plateSolveParams);
 
                         // Calibration flags from preferences
-                        boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
-                        boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+                        boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+                        boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
                         root.put("imu_correction_local_set", localCalibCapture);
                         root.put("imu_correction_get", globalCalibApply);
 
@@ -900,8 +903,8 @@ public class StargazerActivity extends AppCompatActivity {
         root.put("plate_solve_parameters", plateSolveParams);
 
         // Calibration flags from preferences
-        boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
-        boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+        boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+        boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
         root.put("imu_correction_local_set", localCalibCapture);
         root.put("imu_correction_get", globalCalibApply);
 

@@ -21,6 +21,10 @@ public class PreferenceKeys {
     public static final String SolverHintEnabledKey      = "preference_solver_hint_enabled";       // SwitchPreference
     public static final String SolverHintRadiusKey       = "preference_solver_hint_radius";        // EditTextPreference (numberDecimal, degrees)
     public static final String CalibrationLocationEnabledKey = "preference_calibration_location_enabled"; // SwitchPreference
+    public static final String LocalCalibrationCaptureKey = "preference_local_calibration_capture";  // SwitchPreference
+    public static final String GlobalCalibrationApplyKey = "preference_global_calibration_apply";    // SwitchPreference
+    public static final String CalibrationDegreeStepKey = "preference_calibration_degree_step";      // EditTextPreference (numberDecimal)
+    public static final String IersAutoSyncHoursKey = "preference_iers_auto_sync_hours";             // ListPreference
 
     // must be static, to safely call from other Activities
 
