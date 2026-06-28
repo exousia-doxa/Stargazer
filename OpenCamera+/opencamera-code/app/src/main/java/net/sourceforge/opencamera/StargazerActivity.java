@@ -52,6 +52,8 @@ public class StargazerActivity extends AppCompatActivity {
     private TableLayout photoInfoTable;
     private TextView consoleTextView;
     private TableLayout solverResultsTable;
+    private Button viewPhotoButton;
+    private String currentChartedImagePath = null;
     private Button runSolveButton;
     private Button captureButton;
     private Button galleryButton;
@@ -69,6 +71,7 @@ public class StargazerActivity extends AppCompatActivity {
         photoInfoTable = findViewById(R.id.photo_info_table);
         consoleTextView = findViewById(R.id.console_textview);
         solverResultsTable = findViewById(R.id.solver_results_table);
+        viewPhotoButton = findViewById(R.id.view_photo_button);
         runSolveButton = findViewById(R.id.run_solve_button);
         captureButton = findViewById(R.id.capture_button);
         galleryButton = findViewById(R.id.gallery_button);
@@ -78,6 +81,7 @@ public class StargazerActivity extends AppCompatActivity {
         captureButton.setOnClickListener(v -> onClickCapturePhoto());
         galleryButton.setOnClickListener(v -> onClickChooseFromGallery());
         runSolveButton.setOnClickListener(v -> onClickRunSolve());
+        viewPhotoButton.setOnClickListener(v -> openChartedImageInGallery());
         calibrationButton.setOnClickListener(v -> onClickCalibration());
         settingsButton.setOnClickListener(v -> onClickSettings());
     }
@@ -130,6 +134,8 @@ public class StargazerActivity extends AppCompatActivity {
         populatePhotoInfoTable(json);
         consoleTextView.setText("");
         solverResultsTable.removeAllViews();
+        currentChartedImagePath = null;
+        viewPhotoButton.setEnabled(false);
         runSolveButton.setEnabled(true);
     }
 
@@ -290,6 +296,8 @@ public class StargazerActivity extends AppCompatActivity {
             try {
                 runOnUiThread(() -> {
                     runSolveButton.setEnabled(false);
+                    currentChartedImagePath = null;
+                    viewPhotoButton.setEnabled(false);
                     consoleTextView.setText("");
                 });
 
@@ -367,7 +375,15 @@ public class StargazerActivity extends AppCompatActivity {
                                     solverResultsTable.removeAllViews();
                                 });
                             } else {
-                                // Successful solve - populate results table
+                                // Successful solve - handle charted image first (in worker thread to avoid blocking UI)
+                                String chartedImagePath = resJson.optString("charted_image");
+                                String cacheImagePath = null;
+                                if (chartedImagePath != null && !chartedImagePath.isEmpty()) {
+                                    cacheImagePath = moveChartedImageToCache(chartedImagePath);
+                                }
+                                final String finalCacheImagePath = cacheImagePath;
+
+                                // Populate results table (on UI thread)
                                 runOnUiThread(() -> {
                                     solverResultsTable.removeAllViews();
 
@@ -443,6 +459,12 @@ public class StargazerActivity extends AppCompatActivity {
                                             qualityRating = "Poor";
                                         }
                                         addSolverResultRow("Calib. Quality", String.format("%.1f/100 (%s)", qualityScore, qualityRating));
+                                    }
+
+                                    // Enable view photo button if charted image available
+                                    if (finalCacheImagePath != null && !finalCacheImagePath.isEmpty()) {
+                                        currentChartedImagePath = finalCacheImagePath;
+                                        viewPhotoButton.setEnabled(true);
                                     }
                                 });
                             }
@@ -1134,6 +1156,59 @@ public class StargazerActivity extends AppCompatActivity {
                     "Error loading image: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         }).start();
+    }
+
+    private String moveChartedImageToCache(String originalPath) {
+        try {
+            File originalFile = new File(originalPath);
+            if (!originalFile.exists()) {
+                Log.w(TAG, "Charted image not found at " + originalPath);
+                return null;
+            }
+
+            File cacheDir = getCacheDir();
+            File cachedFile = new File(cacheDir, "solve_result.jpg");
+
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(originalFile);
+                 java.io.FileOutputStream fos = new java.io.FileOutputStream(cachedFile)) {
+                byte[] buf = new byte[16384];
+                int len;
+                while ((len = fis.read(buf)) > 0) {
+                    fos.write(buf, 0, len);
+                }
+            }
+
+            Log.d(TAG, "Charted image copied to cache: " + cachedFile.getAbsolutePath());
+            return cachedFile.getAbsolutePath();
+        } catch (Exception e) {
+            Log.e(TAG, "Error copying charted image to cache", e);
+            return null;
+        }
+    }
+
+    private void openChartedImageInGallery() {
+        if (currentChartedImagePath == null || currentChartedImagePath.isEmpty()) {
+            Toast.makeText(this, "Image not available", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try {
+            File imageFile = new File(currentChartedImagePath);
+            Uri imageUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "net.sourceforge.opencamera.fileprovider",
+                imageFile
+            );
+
+            Intent viewIntent = new Intent(Intent.ACTION_VIEW);
+            viewIntent.setDataAndType(imageUri, "image/jpeg");
+            viewIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+            startActivity(viewIntent);
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening image in gallery", e);
+            Toast.makeText(this, "Could not open image: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     @Override

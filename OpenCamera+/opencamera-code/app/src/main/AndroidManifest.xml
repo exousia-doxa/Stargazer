@@ -172,6 +172,15 @@
             android:enabled="true"
             android:exported="false"
             />
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="net.sourceforge.opencamera.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
     </application>
     <!-- needed for targetting Android 11 - see https://developer.android.com/about/versions/11/behavior-changes-11 -->
     <queries>

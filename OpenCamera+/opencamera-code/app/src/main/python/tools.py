@@ -555,3 +555,34 @@ def drawing(arguments, zenith_photo_coordinates, coefficient_location):
     except Exception:
         return None
 
+
+def draw_solve_result(image_path, center_xy, obs_zenith_xy, apr_zenith_xy=None):
+    """Draw solved image with three marked points: center (green), observed zenith (blue), actual zenith (red)."""
+    if image_path is None:
+        return None
+    try:
+        img_path = Path(image_path)
+        if not img_path.exists():
+            return None
+
+        img = Image.open(img_path).convert("RGB")
+        draw = ImageDraw.Draw(img)
+
+        # Convert to pixel coords (no extra functions, direct conversion)
+        def mark_point(pt, color):
+            if pt is None:
+                return
+            x, y = int(round(float(pt[0]))), int(round(float(pt[1])))
+            half = 5  # 10px diameter = 5px radius
+            draw.ellipse([x-half, y-half, x+half, y+half], fill=color)
+
+        mark_point(center_xy, "green")
+        mark_point(obs_zenith_xy, "blue")
+        mark_point(apr_zenith_xy, "red")
+
+        out_path = img_path.parent / ("solve_result_" + img_path.name)
+        img.save(out_path)
+        return str(out_path)
+    except Exception:
+        return None
+

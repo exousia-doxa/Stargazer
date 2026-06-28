@@ -712,13 +712,18 @@ def solve_photo(meta, arguments_c, is_imu_correction_get=True, is_imu_correction
                 sys.stdout.flush()
         else:
             print(f"GPS location: not available")
+            apr_zenith_xy = None
 
         # global calibration is handled by `calibrate_correction` (operates across images)
         results['no_local_found_message'] = None
 
-        # Use apr_zenith_xy if available, else None
-        apr_zenith_xy_for_drawing = apr_zenith_xy if (is_imu_correction_local_set and actual_latitude is not None and 'approx_photo_coordinates' in results) else None
-        charted = drawing(asdict(meta), obs_zenith_xy, apr_zenith_xy_for_drawing)
+        # Draw solve result: center (green), observed zenith (blue), actual zenith (red)
+        center_xy = [full_width_px / 2.0, full_height_px / 2.0] if full_width_px and full_height_px else None
+        charted = tools.draw_solve_result(linked_image, center_xy, obs_zenith_xy, apr_zenith_xy)
+        if charted is None:
+            print(f"WARNING: Could not generate solve result image")
+        else:
+            print(f"Solve result image: {charted}")
         results['charted_image'] = charted
 
         if results.get('actual_location') and results.get('calculated_location'):
