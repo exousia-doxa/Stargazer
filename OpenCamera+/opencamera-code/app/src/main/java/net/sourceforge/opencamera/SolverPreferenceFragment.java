@@ -1,10 +1,13 @@
 package net.sourceforge.opencamera;
 
+import android.app.Activity;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.preference.Preference;
 import android.preference.PreferenceFragment;
+import android.preference.PreferenceManager;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -22,7 +25,7 @@ import java.util.concurrent.Executors;
  * Preferences UI for plate solver configuration: IERS sync, calibration parameters, solver options.
  * Handles manual IERS synchronization via background thread and Python interop.
  */
-public class SolverPreferenceFragment extends PreferenceFragment {
+public class SolverPreferenceFragment extends PreferenceFragment implements SharedPreferences.OnSharedPreferenceChangeListener {
     private static final String TAG = "SolverPreferenceFragment";
     private ConfigManager configManager;
     private ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -84,10 +87,17 @@ public class SolverPreferenceFragment extends PreferenceFragment {
             try {
                 Log.d(TAG, "[IERS] Starting manual sync");
 
+                // Check fragment lifecycle before accessing context (fix for Bug #2)
+                Activity activity = getActivity();
+                if (activity == null) {
+                    Log.w(TAG, "[IERS] Fragment detached, sync cancelled");
+                    return;
+                }
+
                 if (!Python.isStarted()) {
                     Log.d(TAG, "[IERS] Starting Python runtime");
                     try {
-                        Python.start(new AndroidPlatform(getActivity()));
+                        Python.start(new AndroidPlatform(activity));
                     } catch (Exception e) {
                         Log.e(TAG, "[IERS] Failed to start Python: " + e.getMessage());
                         mainHandler.post(() -> showSyncResult(false, "Failed to start Python: " + e.getMessage()));
@@ -97,7 +107,7 @@ public class SolverPreferenceFragment extends PreferenceFragment {
 
                 Python py = Python.getInstance();
 
-                File cacheDir = getActivity().getCacheDir();
+                File cacheDir = activity.getCacheDir();
                 File iersCacheDir = new File(cacheDir, "iers");
 
                 Log.d(TAG, "[IERS] Cache dir: " + iersCacheDir);
@@ -151,8 +161,33 @@ public class SolverPreferenceFragment extends PreferenceFragment {
      */
     private void showSyncResult(boolean success, String message) {
         String text = (success ? "✓ " : "✗ ") + message;
-        Toast.makeText(getActivity(), text, Toast.LENGTH_LONG).show();
+        Activity activity = getActivity();
+        if (activity != null) {
+            Toast.makeText(activity, text, Toast.LENGTH_LONG).show();
+        }
         Log.d(TAG, "[IERS] " + text);
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        SharedPreferences sharedPreferences = getPreferenceScreen().getSharedPreferences();
+        sharedPreferences.registerOnSharedPreferenceChangeListener(this);
+        updateLastSyncDisplay();
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        getPreferenceScreen().getSharedPreferences().unregisterOnSharedPreferenceChangeListener(this);
+    }
+
+    @Override
+    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+        // Refresh last sync display if external preference changes occur
+        if (key.equals(PreferenceKeys.IersAutoSyncHoursKey)) {
+            updateLastSyncDisplay();
+        }
     }
 
     @Override

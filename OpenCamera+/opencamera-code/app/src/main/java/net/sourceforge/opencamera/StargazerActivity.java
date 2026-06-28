@@ -52,6 +52,8 @@ public class StargazerActivity extends AppCompatActivity {
     private TableLayout photoInfoTable;
     private TextView consoleTextView;
     private TableLayout solverResultsTable;
+    private Button viewPhotoButton;
+    private String currentChartedImagePath = null;
     private Button runSolveButton;
     private Button captureButton;
     private Button galleryButton;
@@ -69,6 +71,7 @@ public class StargazerActivity extends AppCompatActivity {
         photoInfoTable = findViewById(R.id.photo_info_table);
         consoleTextView = findViewById(R.id.console_textview);
         solverResultsTable = findViewById(R.id.solver_results_table);
+        viewPhotoButton = findViewById(R.id.view_photo_button);
         runSolveButton = findViewById(R.id.run_solve_button);
         captureButton = findViewById(R.id.capture_button);
         galleryButton = findViewById(R.id.gallery_button);
@@ -78,6 +81,7 @@ public class StargazerActivity extends AppCompatActivity {
         captureButton.setOnClickListener(v -> onClickCapturePhoto());
         galleryButton.setOnClickListener(v -> onClickChooseFromGallery());
         runSolveButton.setOnClickListener(v -> onClickRunSolve());
+        viewPhotoButton.setOnClickListener(v -> openChartedImageInGallery());
         calibrationButton.setOnClickListener(v -> onClickCalibration());
         settingsButton.setOnClickListener(v -> onClickSettings());
     }
@@ -117,6 +121,9 @@ public class StargazerActivity extends AppCompatActivity {
                 // Now process the photo with permission granted
                 processGalleryPhoto(uri);
             }
+        } else if (requestCode == REQUEST_SETTINGS) {
+            // Settings activity closed, settings auto-saved to SharedPreferences
+            Log.d(TAG, "Settings activity returned");
         }
     }
 
@@ -127,6 +134,8 @@ public class StargazerActivity extends AppCompatActivity {
         populatePhotoInfoTable(json);
         consoleTextView.setText("");
         solverResultsTable.removeAllViews();
+        currentChartedImagePath = null;
+        viewPhotoButton.setEnabled(false);
         runSolveButton.setEnabled(true);
     }
 
@@ -269,10 +278,26 @@ public class StargazerActivity extends AppCompatActivity {
             return;
         }
 
+        // Refresh calibration settings from preferences (in case user changed them after photo selection)
+        try {
+            JSONObject jsonObj = new JSONObject(currentJsonString);
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+            boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
+            jsonObj.put("imu_correction_local_set", localCalibCapture);
+            jsonObj.put("imu_correction_get", globalCalibApply);
+            currentJsonString = jsonObj.toString(4);
+            Log.d(TAG, "Updated calibration settings: local_set=" + localCalibCapture + ", global_get=" + globalCalibApply);
+        } catch (JSONException e) {
+            Log.e(TAG, "Error updating calibration settings: " + e.getMessage());
+        }
+
         pythonSolveFuture = solveExecutor.submit(() -> {
             try {
                 runOnUiThread(() -> {
                     runSolveButton.setEnabled(false);
+                    currentChartedImagePath = null;
+                    viewPhotoButton.setEnabled(false);
                     consoleTextView.setText("");
                 });
 
@@ -350,7 +375,15 @@ public class StargazerActivity extends AppCompatActivity {
                                     solverResultsTable.removeAllViews();
                                 });
                             } else {
-                                // Successful solve - populate results table
+                                // Successful solve - handle charted image first (in worker thread to avoid blocking UI)
+                                String chartedImagePath = resJson.optString("charted_image");
+                                String cacheImagePath = null;
+                                if (chartedImagePath != null && !chartedImagePath.isEmpty()) {
+                                    cacheImagePath = moveChartedImageToCache(chartedImagePath);
+                                }
+                                final String finalCacheImagePath = cacheImagePath;
+
+                                // Populate results table (on UI thread)
                                 runOnUiThread(() -> {
                                     solverResultsTable.removeAllViews();
 
@@ -389,17 +422,27 @@ public class StargazerActivity extends AppCompatActivity {
                                         addSolverResultRow("Index", indexName);
                                     }
 
-                                    // Zenith offset (degrees and km)
+                                    // Observed zenith offset (phone orientation)
                                     double zenithOffsetDeg = resJson.optDouble("zenith_offset_degrees", -1);
-                                    double zenithOffsetKm = resJson.optDouble("zenith_offset_km", -1);
                                     if (zenithOffsetDeg >= 0) {
-                                        addSolverResultRow("Zenith offset", String.format("%.2f° (~%.1f km)", zenithOffsetDeg, zenithOffsetKm));
+                                        addSolverResultRow("Zenith offset angle", String.format("%.2f°", zenithOffsetDeg));
+                                    }
+
+                                    // Zenith mismatch angle (between observed and actual zenith from GPS)
+                                    Object zenithMismatchObj = resJson.opt("zenith_mismatch_angle_degrees");
+                                    if (zenithMismatchObj != null) {
+                                        if (zenithMismatchObj instanceof Number) {
+                                            double zenithMismatchAngle = ((Number) zenithMismatchObj).doubleValue();
+                                            addSolverResultRow("Zenith mismatch angle", String.format("%.2f°", zenithMismatchAngle));
+                                        } else if (zenithMismatchObj instanceof String && zenithMismatchObj.equals("N/A")) {
+                                            addSolverResultRow("Zenith mismatch angle", "N/A (no GPS)");
+                                        }
                                     }
 
                                     // Zenith mismatch impact percentage
                                     double mismatchPercent = resJson.optDouble("zenith_mismatch_impact_percent", -1);
                                     if (mismatchPercent >= 0 && precision >= 0) {
-                                        addSolverResultRow("Zenith mismatch impact", String.format("%.1f%%", mismatchPercent));
+                                        addSolverResultRow("Mismatch impact", String.format("%.1f%%", mismatchPercent));
                                     }
 
                                     // Calibration quality score
@@ -416,6 +459,12 @@ public class StargazerActivity extends AppCompatActivity {
                                             qualityRating = "Poor";
                                         }
                                         addSolverResultRow("Calib. Quality", String.format("%.1f/100 (%s)", qualityScore, qualityRating));
+                                    }
+
+                                    // Enable view photo button if charted image available
+                                    if (finalCacheImagePath != null && !finalCacheImagePath.isEmpty()) {
+                                        currentChartedImagePath = finalCacheImagePath;
+                                        viewPhotoButton.setEnabled(true);
                                     }
                                 });
                             }
@@ -440,33 +489,40 @@ public class StargazerActivity extends AppCompatActivity {
                         Log.e(TAG, "Python error in solve thread", e);
                         appendConsoleLine(consoleTextView, "Python error: " + e.getMessage());
                     } finally {
-                        // Write calibration metadata to original photo
+                        // Write calibration metadata to original photo only if local calibration is enabled
                         try {
-                            String targetPath = originalPath;
-                            String contentUri = null;
-                            // Check if JSON has original_real_path and original_content_uri (gallery photo case)
-                            try {
-                                JSONObject jsonObj = new JSONObject(currentJsonString);
-                                String realPath = jsonObj.optString("original_real_path");
-                                if (realPath != null && !realPath.isEmpty()) {
-                                    targetPath = realPath;
-                                    Log.d(TAG, "Using original real path for metadata write: " + targetPath);
-                                }
-                                String uri = jsonObj.optString("original_content_uri");
-                                if (uri != null && !uri.isEmpty()) {
-                                    contentUri = uri;
-                                    Log.d(TAG, "Using original content URI: " + contentUri);
-                                }
-                            } catch (Exception e) {
-                                Log.d(TAG, "No original_real_path in JSON, using default path");
-                            }
+                            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+                            boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
 
-                            if (targetPath != null && !targetPath.isEmpty() && solveResultJson != null && !solveResultJson.isEmpty()) {
-                                // Format all metadata (timestamp, gravity, location, calibration)
-                                String metaData = MetadataFormatter.formatMetadata(currentJsonString, solveResultJson);
-                                if (metaData != null && !metaData.isEmpty()) {
-                                    writeMetadataToFile(targetPath, metaData, contentUri);
+                            if (localCalibCapture) {
+                                String targetPath = originalPath;
+                                String contentUri = null;
+                                // Check if JSON has original_real_path and original_content_uri (gallery photo case)
+                                try {
+                                    JSONObject jsonObj = new JSONObject(currentJsonString);
+                                    String realPath = jsonObj.optString("original_real_path");
+                                    if (realPath != null && !realPath.isEmpty()) {
+                                        targetPath = realPath;
+                                        Log.d(TAG, "Using original real path for metadata write: " + targetPath);
+                                    }
+                                    String uri = jsonObj.optString("original_content_uri");
+                                    if (uri != null && !uri.isEmpty()) {
+                                        contentUri = uri;
+                                        Log.d(TAG, "Using original content URI: " + contentUri);
+                                    }
+                                } catch (Exception e) {
+                                    Log.d(TAG, "No original_real_path in JSON, using default path");
                                 }
+
+                                if (targetPath != null && !targetPath.isEmpty() && solveResultJson != null && !solveResultJson.isEmpty()) {
+                                    // Format all metadata (timestamp, gravity, location, calibration)
+                                    String metaData = MetadataFormatter.formatMetadata(currentJsonString, solveResultJson);
+                                    if (metaData != null && !metaData.isEmpty()) {
+                                        writeMetadataToFile(targetPath, metaData, contentUri);
+                                    }
+                                }
+                            } else {
+                                Log.d(TAG, "Local calibration disabled, skipping EXIF write");
                             }
                         } catch (Exception e) {
                             Log.e(TAG, "Error writing calibration metadata: " + e.getMessage());
@@ -677,8 +733,8 @@ public class StargazerActivity extends AppCompatActivity {
                             : null);
                     embeddedJson.put("plate_solve_parameters", plateSolveParams);
                     // Add calibration flags from preferences
-                    boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
-                    boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+                    boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+                    boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
                     embeddedJson.put("imu_correction_local_set", localCalibCapture);
                     embeddedJson.put("imu_correction_get", globalCalibApply);
                     return embeddedJson.toString(4);
@@ -748,8 +804,8 @@ public class StargazerActivity extends AppCompatActivity {
                         root.put("plate_solve_parameters", plateSolveParams);
 
                         // Calibration flags from preferences
-                        boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
-                        boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+                        boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+                        boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
                         root.put("imu_correction_local_set", localCalibCapture);
                         root.put("imu_correction_get", globalCalibApply);
 
@@ -869,8 +925,8 @@ public class StargazerActivity extends AppCompatActivity {
         root.put("plate_solve_parameters", plateSolveParams);
 
         // Calibration flags from preferences
-        boolean localCalibCapture = prefs.getBoolean("preference_local_calibration_capture", false);
-        boolean globalCalibApply = prefs.getBoolean("preference_global_calibration_apply", false);
+        boolean localCalibCapture = prefs.getBoolean(PreferenceKeys.LocalCalibrationCaptureKey, false);
+        boolean globalCalibApply = prefs.getBoolean(PreferenceKeys.GlobalCalibrationApplyKey, false);
         root.put("imu_correction_local_set", localCalibCapture);
         root.put("imu_correction_get", globalCalibApply);
 
@@ -894,7 +950,7 @@ public class StargazerActivity extends AppCompatActivity {
         params.put("-J");
 
         // Field width range + units.
-        String unitsValue = prefs.getString(PreferenceKeys.SolverFieldUnitsKey, "arcminwidth");
+        String unitsValue = prefs.getString(PreferenceKeys.SolverFieldUnitsKey, "degwidth");
         String minStr = prefs.getString(PreferenceKeys.SolverFieldMinKey, "30");
         String maxStr = prefs.getString(PreferenceKeys.SolverFieldMaxKey, "180");
         if (minStr != null && !minStr.trim().isEmpty()) {
@@ -1100,6 +1156,59 @@ public class StargazerActivity extends AppCompatActivity {
                     "Error loading image: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         }).start();
+    }
+
+    private String moveChartedImageToCache(String originalPath) {
+        try {
+            File originalFile = new File(originalPath);
+            if (!originalFile.exists()) {
+                Log.w(TAG, "Charted image not found at " + originalPath);
+                return null;
+            }
+
+            File cacheDir = getCacheDir();
+            File cachedFile = new File(cacheDir, "solve_result.jpg");
+
+            try (java.io.FileInputStream fis = new java.io.FileInputStream(originalFile);
+                 java.io.FileOutputStream fos = new java.io.FileOutputStream(cachedFile)) {
+                byte[] buf = new byte[16384];
+                int len;
+                while ((len = fis.read(buf)) > 0) {
+                    fos.write(buf, 0, len);
+                }
+            }
+
+            Log.d(TAG, "Charted image copied to cache: " + cachedFile.getAbsolutePath());
+            return cachedFile.getAbsolutePath();
+        } catch (Exception e) {
+            Log.e(TAG, "Error copying charted image to cache", e);
+            return null;
+        }
+    }
+
+    private void openChartedImageInGallery() {
+        if (currentChartedImagePath == null || currentChartedImagePath.isEmpty()) {
+            Toast.makeText(this, "Image not available", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try {
+            File imageFile = new File(currentChartedImagePath);
+            Uri imageUri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "net.sourceforge.opencamera.fileprovider",
+                imageFile
+            );
+
+            Intent viewIntent = new Intent(Intent.ACTION_VIEW);
+            viewIntent.setDataAndType(imageUri, "image/jpeg");
+            viewIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+            startActivity(viewIntent);
+        } catch (Exception e) {
+            Log.e(TAG, "Error opening image in gallery", e);
+            Toast.makeText(this, "Could not open image: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     @Override

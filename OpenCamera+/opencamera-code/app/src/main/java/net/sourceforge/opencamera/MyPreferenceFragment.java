@@ -534,29 +534,6 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
         if( MyDebug.LOG )
             Log.d(TAG, "onSharedPreferenceChanged: " + key);
         updatePreference(findPreference(key));
-
-        // Stargazer specific preferences update
-        switch (key) {
-            case PreferenceKeys.MatrixWidthPreferenceKey:
-            case PreferenceKeys.MatrixHeightPreferenceKey:
-            case PreferenceKeys.FocalLengthPreferenceKey:
-            case PreferenceKeys.SolverFieldMinKey:
-            case PreferenceKeys.SolverFieldMaxKey:
-            case PreferenceKeys.SolverCpuLimitKey:
-            case PreferenceKeys.SolverWallTimeoutKey:
-            case PreferenceKeys.SolverMaxObjectsKey:
-            case PreferenceKeys.SolverHintRadiusKey:
-                EditTextPreference editTextPref = (EditTextPreference)findPreference(key);
-                if (editTextPref != null) {
-                    String value = editTextPref.getText();
-                    if (value == null || value.trim().isEmpty()) {
-                        value = "0"; // Default value if empty
-                    }
-                    // Update summary to show the current value
-                    editTextPref.setSummary(value);
-                }
-                break;
-        }
     }
 
     // Helper method to initialize summaries on startup
@@ -593,11 +570,16 @@ public class MyPreferenceFragment extends PreferenceFragment implements OnShared
                 case PreferenceKeys.SolverWallTimeoutKey:
                 case PreferenceKeys.SolverMaxObjectsKey:
                 case PreferenceKeys.SolverHintRadiusKey:
+                case PreferenceKeys.CalibrationDegreeStepKey:
                     String value = editTextPref.getText();
+                    String displayValue = value;
                     if (value == null || value.trim().isEmpty()) {
-                        value = "0"; // Default value
+                        displayValue = "0"; // Default display value
+                        // Persist the default value to avoid inconsistency (fix for Bug #4)
+                        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getActivity());
+                        prefs.edit().putString(key, displayValue).apply();
                     }
-                    editTextPref.setSummary(value);
+                    editTextPref.setSummary(displayValue);
                     break;
                 default:
                     // For other EditTextPreferences if any

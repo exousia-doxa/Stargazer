@@ -2,12 +2,13 @@ import os
 import sys
 import subprocess
 from pathlib import Path
+from typing import Optional
 import numpy as np
 from PIL import Image
 
 try:
-    from java import jclass, jbyte, jarray
-    from com.chaquo.python import Python
+    from java import jclass, jbyte, jarray  # type: ignore
+    from com.chaquo.python import Python  # type: ignore
     JAVA_AVAILABLE = True
 except ImportError:
     JAVA_AVAILABLE = False
@@ -18,7 +19,7 @@ from astropy.io import fits
 from astropy.wcs import WCS
 
 
-def _zenith_radec_from_gps(latitude_deg, longitude_deg, iso_utc):
+def _zenith_radec_from_gps(latitude_deg, longitude_deg, iso_utc) -> tuple[Optional[float], Optional[float]]:
     """Return (RA_deg, Dec_deg) of the zenith at the given GPS lat/lon and
     UTC time, or (None, None) if the inputs are invalid. Used to turn a
     rough GPS fix into a positional hint for `solve-field -3/-4`.
@@ -30,10 +31,10 @@ def _zenith_radec_from_gps(latitude_deg, longitude_deg, iso_utc):
         loc = EarthLocation.from_geodetic(
             lon=longitude_deg * u.deg, lat=latitude_deg * u.deg)
         t = Time(iso_utc)
-        zenith = SkyCoord(alt=90 * u.deg, az=0 * u.deg,
+        zenith = SkyCoord(alt=90 * u.deg, az=0 * u.deg,  # type: ignore
                           frame=AltAz(obstime=t, location=loc))
-        icrs = zenith.icrs
-        return float(icrs.ra.deg), float(icrs.dec.deg)
+        icrs = zenith.icrs  # type: ignore
+        return float(icrs.ra.deg), float(icrs.dec.deg)  # type: ignore
     except Exception as e:
         print(f"WARNING: zenith RA/Dec computation failed: {e}")
         sys.stdout.flush()
@@ -66,7 +67,7 @@ def convert_image_to_fits(input_image, output_fits_path):
     
     return output_fits_path
 
-def extract_astrometry_if_needed():
+def extract_astrometry_if_needed() -> Optional[str]:
     if not JAVA_AVAILABLE:
         return None
     context = Python.getPlatform().getApplication().getApplicationContext()
@@ -93,10 +94,10 @@ def extract_astrometry_if_needed():
             input_stream = asset_manager.open("astrometry.net.tar")
             
         tar_path = os.path.join(stargazer_dir, "astrometry.net.tar.gz")
-        
-        FileOutputStream = jclass("java.io.FileOutputStream")
+
+        FileOutputStream = jclass("java.io.FileOutputStream")  # type: ignore
         out_stream = FileOutputStream(tar_path)
-        buffer = jarray(jbyte)(8192)
+        buffer = jarray(jbyte)(8192)  # type: ignore
         while True:
             read = input_stream.read(buffer)
             if read == -1: break
@@ -160,9 +161,9 @@ def extract_astrometry_if_needed():
             print(f"WARNING: could not open asset data/{name}: {e}")
             sys.stdout.flush()
             continue
-        FileOutputStream = jclass("java.io.FileOutputStream")
+        FileOutputStream = jclass("java.io.FileOutputStream")  # type: ignore
         out = FileOutputStream(dst)
-        buf = jarray(jbyte)(8192)
+        buf = jarray(jbyte)(8192)  # type: ignore
         try:
             while True:
                 read = stream.read(buf)
@@ -187,8 +188,10 @@ def plate_solve(input_image, output_directory, parameters, arguments_c={}):
 
         if not JAVA_AVAILABLE:
             raise RuntimeError("Java interop not available")
-            
+
         astro_net_dir = extract_astrometry_if_needed()
+        if astro_net_dir is None:
+            raise RuntimeError("Failed to extract astrometry.net")
         context = Python.getPlatform().getApplication().getApplicationContext()
         native_lib_dir = context.getApplicationInfo().nativeLibraryDir
 
@@ -311,8 +314,9 @@ def plate_solve(input_image, output_directory, parameters, arguments_c={}):
             "--dir", output_directory,
             "--wcs", wcs_path,
             "-m", output_directory,
-            "-y", "-9",
+            "-y",
             "--uniformize", "0",
+            "--no-remove-lines",
         ]
 
         # Use default config from extracted location
@@ -325,7 +329,7 @@ def plate_solve(input_image, output_directory, parameters, arguments_c={}):
 
         # Warn about duplicate single-value flags (last wins on the engine
         # side, which silently overrides earlier values).
-        single_value_flags = {"-l", "-L", "-H", "-u", "-z", "-y",
+        single_value_flags = {"-l", "-L", "-H", "-u", "-z",
                               "--uniformize", "--config", "-3", "-4", "-5",
                               "--objs", "--parity"}
         seen = {}

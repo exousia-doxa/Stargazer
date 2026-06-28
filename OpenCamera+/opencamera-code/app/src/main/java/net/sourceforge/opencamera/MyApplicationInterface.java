@@ -1125,7 +1125,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
     public String getLockOrientationPref() {
         if( getPhotoMode() == PhotoMode.Panorama )
             return "portrait"; // for now panorama only supports portrait
-        return sharedPreferences.getString(PreferenceKeys.LockOrientationPreferenceKey, "none");
+        return sharedPreferences.getString(PreferenceKeys.LockOrientationPreferenceKey, "portrait");
     }
 
     @Override
@@ -1234,7 +1234,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
 
     @Override
     public boolean getGeotaggingPref() {
-        return sharedPreferences.getBoolean(PreferenceKeys.LocationPreferenceKey, false);
+        return sharedPreferences.getBoolean(PreferenceKeys.LocationPreferenceKey, true);
     }
 
     @Override
@@ -3360,7 +3360,7 @@ public class MyApplicationInterface extends BasicApplicationInterface {
         boolean using_camera2 = main_activity.getPreview().usingCamera2API();
         boolean using_camera_extensions = isCameraExtensionPref();
         ImageSaver.Request.ImageFormat image_format = getImageFormatPref();
-        boolean store_ypr = sharedPreferences.getBoolean(PreferenceKeys.AddYPRToComments, false) &&
+        boolean store_ypr = sharedPreferences.getBoolean(PreferenceKeys.AddYPRToComments, true) &&
                 main_activity.getPreview().hasLevelAngle() &&
                 main_activity.getPreview().hasPitchAngle() &&
                 main_activity.getPreview().hasGeoDirection();

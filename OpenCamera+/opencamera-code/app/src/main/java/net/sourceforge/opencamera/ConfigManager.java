@@ -47,15 +47,22 @@ public class ConfigManager {
                 config.put("correction_matrix", new JSONArray());
             }
 
-            // Get degree step from app preferences
-            String degreeStepStr = appPrefs.getString("preference_calibration_degree_step", "5.0");
-            double degreeStep = Double.parseDouble(degreeStepStr);
+            // Get degree step from app preferences with safe parsing
+            String degreeStepStr = appPrefs.getString(PreferenceKeys.CalibrationDegreeStepKey, "5.0");
+            double degreeStep = 5.0;
+            if (degreeStepStr != null && !degreeStepStr.trim().isEmpty()) {
+                try {
+                    degreeStep = Double.parseDouble(degreeStepStr);
+                } catch (NumberFormatException e) {
+                    android.util.Log.w("ConfigManager", "Invalid degree_step value: " + degreeStepStr + ", using default 5.0", e);
+                }
+            }
             config.put("degree_step", degreeStep);
 
             // Include IERS cache dir so Python can load cached data during solve
             File iersCacheDir = new File(context.getCacheDir(), "iers");
             config.put("iers_cache_dir", iersCacheDir.getAbsolutePath());
-        } catch (JSONException | NumberFormatException e) {
+        } catch (JSONException e) {
             android.util.Log.e("ConfigManager", "Error building config", e);
         }
         return config;
@@ -99,7 +106,7 @@ public class ConfigManager {
      */
     public int getIersAutoSyncHours() {
         try {
-            String val = appPrefs.getString("preference_iers_auto_sync_hours", "168");
+            String val = appPrefs.getString(PreferenceKeys.IersAutoSyncHoursKey, "168");
             return Integer.parseInt(val);
         } catch (NumberFormatException e) {
             return 168;
